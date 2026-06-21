@@ -1,140 +1,465 @@
-/* Fonts are loaded and self-hosted via next/font in app/layout.tsx, which sets
-   the --font-serif / --font-mono / --font-body CSS variables used below. */
-:root {
-  --bg: #0c0c0e;
-  --panel: #131316;
-  --line: #24242a;
-  --ink: #e8e4da;       /* warm paper */
-  --ink-dim: #8a867d;
-  --ink-faint: #56534c;
-  --amber: #c5a572;     /* tungsten — active */
-  --rust: #b4624a;      /* past due */
-  --serif: var(--font-serif), 'Fraunces', Georgia, serif;
-  --mono: var(--font-mono), 'IBM Plex Mono', ui-monospace, monospace;
-  --body: var(--font-body), 'Inter', system-ui, sans-serif;
-}
+/* ============================================================================
+   LEDGER — "Aurora Glass · Tungsten Teal"
+   A single gradient-lit total floating over a soft teal→tungsten aurora behind
+   frosted glass. Stunning, but legible and trustworthy first.
+   Color discipline: AMBER = money/confirmed only · TEAL = focus + live-dot only ·
+   cool hues never touch an amount. Rows stay flat (≤6 blurred surfaces).
+   ============================================================================ */
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
+:root {
+  /* ── Fonts (already exposed by next/font via layout.tsx) ── */
+  --serif: var(--font-serif), 'Fraunces', Georgia, serif;
+  --mono:  var(--font-mono), 'IBM Plex Mono', ui-monospace, monospace;
+  --body:  var(--font-body), 'Inter', system-ui, sans-serif;
+
+  /* ── Canvas (deepened so the aurora reads; warm-neutral, not blue-black) ── */
+  --bg:    #0a0b0d;   /* page base */
+  --bg-2:  #0c0d10;   /* floor-vignette partner */
+  --panel: #131316;   /* legacy opaque panel — also the glass fallback */
+  --line:  #24242a;   /* legacy hairline (kept for non-glass dividers) */
+
+  /* ── Glass surface system ── */
+  --glass-bg:        rgba(18, 20, 25, 0.50);  /* translucent enough to FROST the aurora, not hide it */
+  --glass-bg-strong: rgba(16, 18, 23, 0.54);  /* hero — sees the bloom through the frost */
+  --glass-border:    rgba(186, 204, 212, 0.11);
+  --glass-border-hi: rgba(196, 214, 222, 0.20);
+  --glass-highlight: rgba(220, 235, 240, 0.08); /* inner top highlight */
+  --glass-shadow:
+    0 12px 40px -14px rgba(0, 0, 0, 0.60),
+    0 2px 8px -4px rgba(0, 0, 0, 0.45);
+
+  /* ── Aurora gradient stops (cool teal LEFT · warm tungsten RIGHT + center) ── */
+  --aurora-teal:    hsl(178 64% 50% / 0.30);  /* primary cool bloom, upper-left */
+  --aurora-cyan:    hsl(192 66% 58% / 0.13);  /* cooler edge, upper-right */
+  --aurora-amber:   hsl(36 66% 58% / 0.19);   /* tungsten ember, low-center */
+  --aurora-amber-r: hsl(34 60% 56% / 0.10);   /* faint warm counter-bloom, upper-right */
+  --aurora-deep:    hsl(200 38% 11% / 0.45);  /* settling shadow base */
+
+  /* ── Accent ramps ── */
+  --amber:     #c9a978;   /* tungsten = active (identity anchor, nudged for AA on glass) */
+  --amber-lit: #ddbd8b;   /* brighter amber: gradient head, hover, dot */
+  --teal:      #6bd2cb;   /* cool accent: focus + live-dot ONLY (lifted for 3:1 on glass) */
+  --teal-lit:  #82ddd6;
+  --rust:      #df8c72;   /* past due — text clears AA 4.5:1 at 10px on glass (was #cf7458 ~3.8:1) */
+  --rust-dim:  rgba(207, 116, 88, 0.12);
+
+  /* Semantic mappings */
+  --active:       var(--amber);
+  --pastdue:      var(--rust);
+  --ending:       #a3a8ae;          /* won't renew — neutral cool-grey, the quietest tag */
+  --ending-dim:   rgba(163, 168, 174, 0.10);
+  --pricechange:  var(--amber-lit); /* ↑/↓ from $X stays warm — it's a money fact */
+  --pricechg-dim: rgba(221, 189, 139, 0.10);
+
+  /* ── Total gradient: amber HEAD → cool TEAL TAIL (warm read first) ──
+     Applied only to the dollar integers; the $ sign and .cents stay solid. */
+  --total-gradient: linear-gradient(
+    100deg,
+    var(--amber-lit) 0%,
+    var(--amber)     30%,
+    #c4c2b8          62%,
+    var(--teal)      100%
+  );
+
+  /* ── Inks (warm paper, all lifted for AA over the glass alpha on a bright bloom) ── */
+  --ink:       #ece8de;  /* primary */
+  --ink-dim:   #a39e93;  /* meta / sub — lifted from #8a867d, verified ≥4.5:1 on glass */
+  --ink-faint: #a09a8d;  /* lowest meta — clears AA 4.5:1 over glass-on-bloom (was #74716a ~2.6:1) */
+
+  /* ── Radii ── */
+  --r-xs: 4px;
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 18px;
+  --r-card: 16px;
+
+  /* ── Blur (capped — perf discipline) ── */
+  --blur-card:   18px;
+  --blur-strong: 22px;   /* hero — capped at 22px, never 28px */
+  --blur-aurora: 54px;
+
+  /* ── Spacing scale ── */
+  --s-1: 4px;  --s-2: 8px;  --s-3: 12px; --s-4: 16px;
+  --s-5: 24px; --s-6: 40px; --s-7: 56px; --s-8: 80px;
+
+  /* ── Motion ── */
+  --ease-out:  cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-soft: cubic-bezier(0.4, 0, 0.2, 1);
+  --dur-fast:  120ms;
+  --dur-mid:   280ms;
+  --dur-slow:  600ms;
+  --dur-enter: 700ms;
+  --drift:     40s;
+
+  /* ── Focus: TEAL double-ring (distinct from amber active/hover) ── */
+  --focus: var(--teal);
+  --focus-ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--focus);
+}
+
+/* Opaque fallback if backdrop-filter is unsupported (degrade to clean flat dark). */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root { --glass-bg: var(--panel); --glass-bg-strong: #16181d; }
+}
+
+html { background: var(--bg); }
 body {
-  background: var(--bg);
+  /* MUST stay transparent: the .aurora layer sits at z-index:-1 and an opaque
+     body background would paint over (hide) it. The canvas color lives on html. */
+  background: transparent;
   color: var(--ink);
   font-family: var(--body);
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
   line-height: 1.5;
+  min-height: 100dvh;
+  position: relative;
 }
 
-.wrap { max-width: 760px; margin: 0 auto; padding: 64px 24px 120px; }
-
-/* Masthead */
-.eyebrow {
-  font-family: var(--mono);
-  font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase;
-  color: var(--ink-faint);
+/* Floor vignette: page settles back into dark below the long stacked sections. */
+body::after {
+  content: "";
+  position: fixed; inset: 0; z-index: -2; pointer-events: none;
+  background: radial-gradient(125% 80% at 50% -8%, transparent 42%, var(--bg-2) 100%);
 }
-.masthead { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 56px; }
-.masthead h1 { font-family: var(--serif); font-weight: 500; font-size: 22px; letter-spacing: -0.01em; }
 
-/* Hero — the total, and what was held back */
-.hero { border-top: 1px solid var(--line); padding-top: 40px; margin-bottom: 56px; }
-.hero .label { font-family: var(--mono); font-size: 12px; color: var(--ink-dim); letter-spacing: 0.04em; }
-.hero .total {
-  font-family: var(--serif); font-weight: 400; font-size: 88px; line-height: 0.95;
-  letter-spacing: -0.03em; margin: 10px 0 4px; font-feature-settings: 'tnum';
+/* .wrap must sit above the aurora layer. */
+.wrap { position: relative; z-index: 1; max-width: 760px; margin: 0 auto;
+        padding: var(--s-7) var(--s-4) var(--s-8); }
+
+/* ============================================================================
+   AURORA — one fixed layer, rendered as the first child of <body>.
+   ============================================================================ */
+.aurora {
+  position: fixed;
+  inset: -10vh -8vw auto -8vw;   /* bleed past edges so blur has no hard seam */
+  height: 92vh;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(60% 54% at 24% 28%, var(--aurora-teal)    0%, transparent 64%),
+    radial-gradient(50% 46% at 88% 22%, var(--aurora-amber-r) 0%, transparent 62%),
+    radial-gradient(56% 50% at 80% 10%, var(--aurora-cyan)    0%, transparent 60%),
+    radial-gradient(74% 62% at 52% 50%, var(--aurora-amber)   0%, transparent 64%),
+    radial-gradient(94% 82% at 50% 2%,  var(--aurora-deep)    0%, transparent 72%),
+    linear-gradient(180deg, var(--bg-2) 0%, var(--bg) 64%);
+  filter: blur(var(--blur-aurora)) saturate(116%);
+  -webkit-filter: blur(var(--blur-aurora)) saturate(116%);
+  opacity: 1;
+  -webkit-mask-image: linear-gradient(to bottom, #000 62%, transparent 100%);
+          mask-image: linear-gradient(to bottom, #000 62%, transparent 100%);
 }
-.hero .total .cents { color: var(--ink-dim); font-size: 52px; }
-.hero .sub { font-family: var(--mono); font-size: 12px; color: var(--ink-dim); }
+
+/* OLED anti-banding: vignette to soften bloom edges + faint feTurbulence noise so
+   large soft gradients never stairstep. Noise is an inline data-URI (no request). */
+.aurora::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(120% 120% at 50% 28%, transparent 60%, rgba(0,0,0,0.26) 100%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.025'/%3E%3C/svg%3E");
+  mix-blend-mode: overlay;
+}
+
+/* VERY slow drift — sub-perceptible, gated inside no-preference (default static). */
+@media (prefers-reduced-motion: no-preference) {
+  .aurora {
+    animation: aurora-drift var(--drift) var(--ease-soft) infinite alternate;
+    will-change: transform;   /* transform-only — never re-blend the 54px blur per frame */
+  }
+  @keyframes aurora-drift {
+    0%   { transform: translate3d(0, 0, 0)        scale(1.00); }
+    50%  { transform: translate3d(-1.4%, 1.1%, 0) scale(1.04); }
+    100% { transform: translate3d(1.1%, -0.8%, 0) scale(1.02); }
+  }
+}
+
+/* ============================================================================
+   GLASS — hero + section cards only (never rows).
+   ============================================================================ */
+.glass {
+  position: relative;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--r-card);
+  -webkit-backdrop-filter: blur(var(--blur-card)) saturate(128%);
+          backdrop-filter: blur(var(--blur-card)) saturate(128%);
+  box-shadow: inset 0 1px 0 rgba(228, 242, 247, 0.10),
+              inset 0 -1px 0 rgba(0, 0, 0, 0.25),
+              var(--glass-shadow);
+  isolation: isolate;
+}
+.glass::before {   /* the lit top rim that sells the pane */
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1.5px;
+  border-radius: var(--r-card) var(--r-card) 0 0;
+  background: linear-gradient(90deg,
+    transparent 0%, rgba(220, 235, 240, 0.12) 16%,
+    rgba(228, 242, 247, 0.30) 50%, rgba(220, 235, 240, 0.12) 84%, transparent 100%);
+  pointer-events: none;
+}
+.glass-strong {
+  background: var(--glass-bg-strong);
+  border-radius: var(--r-lg);
+  -webkit-backdrop-filter: blur(var(--blur-strong)) saturate(134%);
+          backdrop-filter: blur(var(--blur-strong)) saturate(134%);
+}
+.glass-strong::before {   /* hero catches the most light */
+  background: linear-gradient(90deg,
+    transparent 0%, rgba(220, 235, 240, 0.14) 16%,
+    rgba(232, 245, 250, 0.36) 50%, rgba(220, 235, 240, 0.14) 84%, transparent 100%);
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass        { background: var(--panel); }
+  .glass-strong { background: #16181d; }
+  .glass::before { opacity: 0.5; }
+}
+
+/* ============================================================================
+   MASTHEAD
+   ============================================================================ */
+.masthead { display: flex; justify-content: space-between; align-items: baseline;
+            gap: var(--s-4); margin-bottom: var(--s-6); }
+.eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing: 0.18em;
+           text-transform: uppercase; color: var(--ink-faint); }
+.masthead h1 { font-family: var(--serif); font-weight: 420; font-size: 30px;
+               letter-spacing: -0.01em; color: var(--ink); margin-top: 4px; }
+.scanbar { display: flex; align-items: center; gap: var(--s-3); }
+.scanbar .when { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); }
+
+/* glass-chip controls: Scan / Connect / back */
+button.scan, a.scan {
+  font-family: var(--mono); font-size: 12px; letter-spacing: 0.03em;
+  color: var(--ink-dim); text-decoration: none; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 13px; border-radius: var(--r-sm);
+  border: 1px solid var(--glass-border); background: var(--glass-bg);
+  /* no backdrop-filter: keeps the page ≤6 blurred surfaces; chips sit on opaque cards */
+}
+button.scan:hover, a.scan:hover { color: var(--ink); border-color: var(--glass-border-hi); }
+button.scan:disabled { opacity: 0.5; cursor: default; }
+a.back { font-family: var(--mono); font-size: 12px; letter-spacing: 0.03em;
+         color: var(--ink-dim); text-decoration: none; }
+a.back:hover { color: var(--amber-lit); }
+
+/* ============================================================================
+   HERO — the single brightest, most expressive card
+   ============================================================================ */
+.hero { padding: var(--s-6); margin-bottom: var(--s-5); }
+.hero .label {
+  font-family: var(--mono); font-size: 11px; text-transform: uppercase;
+  letter-spacing: 0.16em; color: var(--ink-dim);
+  display: inline-flex; align-items: center; gap: 8px;
+}
+.hero .label::before {   /* the CONFIRMED live-dot (teal) */
+  content: ""; width: 7px; height: 7px; border-radius: 50%; flex: none;
+  background: var(--teal); box-shadow: 0 0 6px rgba(107, 210, 203, 0.5);
+}
+
+.total {
+  font-family: var(--serif); font-weight: 380;
+  font-size: clamp(64px, 12vw, 100px); line-height: 0.92; letter-spacing: -0.025em;
+  color: var(--ink); font-variant-numeric: tabular-nums;
+  margin: var(--s-3) 0 var(--s-2); white-space: nowrap;
+}
+.total .sign { font-size: 0.5em; color: var(--ink); vertical-align: baseline; margin-right: 1px; }
+.total .dollars {
+  background: var(--total-gradient);
+  -webkit-background-clip: text; background-clip: text;
+  color: transparent; -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 2px 22px rgba(221, 189, 139, 0.12)); /* warm glow — money stays warm */
+}
+.total .cents {
+  font-size: 0.5em; font-weight: 400; color: var(--ink-dim);
+  -webkit-text-fill-color: var(--ink-dim); vertical-align: baseline;
+}
+@supports not ((-webkit-background-clip: text) or (background-clip: text)) {
+  .total .dollars { -webkit-text-fill-color: var(--amber-lit); color: var(--amber-lit); background: none; }
+}
+
+.hero .sub { font-family: var(--body); font-size: 14px; color: var(--ink-dim); }
+a.export { font-family: var(--mono); font-size: 12px; color: var(--amber);
+           text-decoration: underline; text-underline-offset: 3px; }
+a.export:hover { color: var(--amber-lit); }
+
 .hero .held {
-  margin-top: 22px; font-family: var(--mono); font-size: 12.5px; color: var(--ink-faint);
-  border-left: 2px solid var(--amber); padding-left: 12px; line-height: 1.7;
+  margin-top: var(--s-4); padding: 12px 14px; border-radius: var(--r-md);
+  background: rgba(201, 169, 120, 0.07);
+  border-left: 2px solid color-mix(in srgb, var(--amber) 70%, transparent);
+  box-shadow: inset 2px 0 0 var(--amber);
+  font-family: var(--mono); font-size: 12.5px; color: var(--ink-dim); line-height: 1.7;
 }
 .hero .held b { color: var(--amber); font-weight: 500; }
 
-/* Sections */
-.section { margin-bottom: 44px; }
+/* ============================================================================
+   SECTIONS + LEDGER ROWS
+   ============================================================================ */
+.section { margin-bottom: var(--s-5); padding-bottom: var(--s-2); overflow: hidden; }
 .section > h2 {
-  font-family: var(--mono); font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase;
-  color: var(--ink-dim); margin-bottom: 14px; display: flex; justify-content: space-between;
+  font-family: var(--mono); font-size: 11px; text-transform: uppercase;
+  letter-spacing: 0.14em; color: var(--ink-dim);
+  padding: var(--s-4) var(--s-5) var(--s-3);
+  display: flex; justify-content: space-between; align-items: baseline;
 }
-.section > h2 .count { color: var(--ink-faint); }
+.section > h2 .count { color: var(--ink-faint); font-variant-numeric: tabular-nums; }
 
-/* Ledger rows */
 .row {
-  display: grid; grid-template-columns: 1fr auto; align-items: baseline;
-  padding: 13px 0; border-bottom: 1px solid var(--line); gap: 16px;
+  display: flex; justify-content: space-between; align-items: baseline; gap: var(--s-4);
+  padding: 14px var(--s-5); border-bottom: 1px solid var(--glass-border);
+  text-decoration: none; color: inherit;
 }
-.row .name { font-size: 15px; letter-spacing: -0.005em; }
-.row .meta { font-family: var(--mono); font-size: 11.5px; color: var(--ink-faint); margin-top: 2px; }
-.row .amt { font-family: var(--mono); font-size: 15px; font-weight: 500; font-feature-settings: 'tnum'; white-space: nowrap; }
-.row .amt.dim { color: var(--ink-faint); font-weight: 400; }
+.section .row:last-child { border-bottom: none; }
+.row .name { font-family: var(--body); font-size: 15px; font-weight: 480; color: var(--ink); }
+.row .meta { font-family: var(--mono); font-size: 11.5px; color: var(--ink-faint);
+             letter-spacing: 0.02em; margin-top: 3px; }
+.row .amt { font-family: var(--mono); font-size: 15px; font-weight: 500;
+            font-variant-numeric: tabular-nums; color: var(--ink); white-space: nowrap; }
+.row .amt.dim { font-size: 11px; color: var(--ink-faint); font-weight: 400; }
+
+a.row.rowlink:hover {
+  background: linear-gradient(90deg, var(--glass-bg-strong), transparent 86%);
+  box-shadow: inset 2px 0 0 var(--amber);
+  border-bottom-color: var(--glass-border-hi);
+}
+a.row.rowlink:hover .name { color: var(--amber-lit); }
+
+/* Tags — tiny glass chips. Loudness ladder: due (rust) > chg (amber) > end (neutral). */
 .tag {
-  display: inline-block; font-family: var(--mono); font-size: 10px; letter-spacing: 0.06em;
-  padding: 1px 6px; border-radius: 2px; margin-left: 8px; vertical-align: middle;
+  display: inline-block; font-family: var(--mono); font-size: 10px; text-transform: uppercase;
+  letter-spacing: 0.06em; padding: 2px 7px; border-radius: 999px; margin-left: 8px;
+  vertical-align: middle; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
-.tag.due { color: var(--rust); border: 1px solid color-mix(in srgb, var(--rust) 45%, transparent); }
-.tag.end { color: var(--ink-faint); border: 1px solid var(--line); }
+.tag.due { color: var(--rust); background: var(--rust-dim);
+           border: 1px solid color-mix(in srgb, var(--rust) 42%, transparent); }
+.tag.end { color: var(--ending); background: var(--ending-dim); border: 1px solid var(--glass-border); }
+.tag.chg { color: var(--amber-lit); background: var(--pricechg-dim); text-transform: none;
+           border: 1px solid color-mix(in srgb, var(--amber) 38%, transparent); }
 
-/* Review queue */
-.review .row { grid-template-columns: 1fr auto; }
+/* ============================================================================
+   REVIEW QUEUE — hollow honesty ring + warm "keep" / neutral "not one"
+   ============================================================================ */
+.review .name { display: inline-flex; align-items: center; gap: 8px; }
+.review .name::before {   /* HOLLOW ring = held back / hypothesis, not confirmed */
+  content: ""; width: 7px; height: 7px; border-radius: 50%; flex: none;
+  border: 1px solid var(--ink-faint);
+}
 .review .why { font-family: var(--mono); font-size: 11.5px; color: var(--ink-dim); margin-top: 3px; }
-.actions { display: flex; gap: 8px; }
+.actions { display: flex; gap: var(--s-2); }
 button.act {
-  font-family: var(--mono); font-size: 11px; letter-spacing: 0.04em;
-  background: transparent; color: var(--ink-dim); border: 1px solid var(--line);
-  padding: 5px 11px; border-radius: 3px; cursor: pointer; transition: all .12s;
+  font-family: var(--mono); font-size: 12px; letter-spacing: 0.03em; cursor: pointer;
+  padding: 6px 12px; border-radius: var(--r-sm);
+  color: var(--ink-dim); border: 1px solid var(--glass-border); background: var(--glass-bg);
 }
-button.act:hover { border-color: var(--ink-dim); color: var(--ink); }
-button.act.keep:hover { border-color: var(--amber); color: var(--amber); }
-button.act:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+button.act:hover { color: var(--ink); border-color: var(--glass-border-hi); }
+button.act.keep {
+  color: var(--amber); background: rgba(201, 169, 120, 0.05);
+  border-color: color-mix(in srgb, var(--amber) 36%, transparent);
+}
+button.act.keep:hover { color: var(--amber-lit); border-color: var(--amber); }
 
-/* Scan control + footer */
-.scanbar { display: flex; align-items: center; gap: 14px; }
-button.scan {
-  font-family: var(--mono); font-size: 12px; letter-spacing: 0.04em;
-  background: var(--amber); color: #1a1408; border: none;
-  padding: 8px 16px; border-radius: 4px; cursor: pointer;
-}
-button.scan:disabled { opacity: .5; cursor: default; }
-.scanbar .when { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); }
+/* ============================================================================
+   FOOTER + EMPTY
+   ============================================================================ */
+.kept-foot { font-family: var(--body); font-size: 14px; color: var(--ink-dim);
+             line-height: 1.6; padding: 0 var(--s-5) var(--s-5); }
+.kept-foot .k { color: var(--ink); font-weight: 500;
+                box-shadow: inset 2px 0 0 var(--amber); padding-left: 12px; margin-left: -12px; }
 
 .empty {
-  font-family: var(--mono); font-size: 12.5px; color: var(--ink-faint);
-  border: 1px dashed var(--line); border-radius: 4px; padding: 16px; text-align: center;
+  font-family: var(--mono); font-size: 13px; color: var(--ink-dim); letter-spacing: 0.02em;
+  border: 1px solid var(--glass-border); border-radius: var(--r-card);
+  background: rgba(255, 255, 255, 0.015);
+  background-image: radial-gradient(60% 60% at 50% 0%, rgba(107, 210, 203, 0.05), transparent 70%);
+  padding: var(--s-6); text-align: center; margin: 0 var(--s-5) var(--s-4);
 }
-.kept-foot { font-family: var(--mono); font-size: 11.5px; color: var(--ink-faint); line-height: 1.9; }
-.kept-foot .k { color: var(--ink-dim); }
 
-/* Clickable ledger rows → per-subscription history */
-a.row.rowlink { text-decoration: none; color: inherit; transition: border-color .12s; }
-a.row.rowlink:hover { border-bottom-color: var(--ink-dim); }
-a.row.rowlink:hover .name { color: var(--amber); }
-a.row.rowlink:focus-visible { outline: 2px solid var(--amber); outline-offset: 3px; border-radius: 2px; }
+/* ============================================================================
+   DETAIL PAGE
+   ============================================================================ */
+.hero.detail .detail-name {
+  font-family: var(--serif); font-size: 34px; font-weight: 420; color: var(--ink);
+  letter-spacing: -0.01em; margin: var(--s-2) 0;
+}
+.hero.detail .total { font-size: clamp(48px, 9vw, 64px); margin: var(--s-2) 0; }
+.total .per { font-family: var(--mono); font-size: 13px; color: var(--ink-dim);
+              -webkit-text-fill-color: var(--ink-dim); vertical-align: baseline; margin-left: 8px; }
+.total .dim { font-family: var(--mono); font-size: 24px; color: var(--ink-faint);
+              -webkit-text-fill-color: var(--ink-faint); }
+.pricenote { font-family: var(--mono); font-size: 12px; color: var(--amber); margin-bottom: var(--s-2); }
 
-/* Price-change badge + detail note */
-.tag.chg { color: var(--amber); border: 1px solid color-mix(in srgb, var(--amber) 40%, transparent); text-transform: none; }
-.hero .pricenote { font-family: var(--mono); font-size: 12px; color: var(--amber); margin: 2px 0 8px; }
+/* ============================================================================
+   MOTION — default state IS the visible end-state; entrance only in no-preference
+   ============================================================================ */
+@media (prefers-reduced-motion: no-preference) {
+  .masthead, .hero, .section {
+    opacity: 0; transform: translateY(8px);
+    animation: enter var(--dur-enter) var(--ease-out) forwards;
+  }
+  /* The Hero is itself a <section>, so it is :nth-of-type(1); the cards start at (2). */
+  .hero                     { animation-delay: 80ms; }
+  .section:nth-of-type(2)   { animation-delay: 160ms; }
+  .section:nth-of-type(3)   { animation-delay: 220ms; }
+  .section:nth-of-type(4)   { animation-delay: 280ms; }
+  .section:nth-of-type(5)   { animation-delay: 340ms; }
+  .section:nth-of-type(6)   { animation-delay: 400ms; }
+  .section:nth-of-type(n+7) { animation-delay: 440ms; }
 
-/* Export link */
-a.export { color: var(--ink-dim); text-decoration: none; border-bottom: 1px solid var(--line); }
-a.export:hover { color: var(--amber); border-bottom-color: var(--amber); }
+  .section .row { opacity: 0; animation: enter 520ms var(--ease-out) forwards; }
+  .section .row:nth-child(2)   { animation-delay: 60ms; }
+  .section .row:nth-child(3)   { animation-delay: 90ms; }
+  .section .row:nth-child(4)   { animation-delay: 120ms; }
+  .section .row:nth-child(5)   { animation-delay: 150ms; }
+  .section .row:nth-child(6)   { animation-delay: 180ms; }
+  .section .row:nth-child(n+7) { animation-delay: 210ms; }
 
-/* Back link (detail masthead) */
-a.back { font-family: var(--mono); font-size: 11px; letter-spacing: 0.04em; color: var(--ink-dim); text-decoration: none; }
-a.back:hover { color: var(--amber); }
+  @keyframes enter { to { opacity: 1; transform: translateY(0); } }
 
-/* Subscription detail hero */
-.hero.detail .detail-name { font-family: var(--serif); font-size: 34px; font-weight: 500; letter-spacing: -0.02em; margin: 8px 0 6px; }
-.hero.detail .total { font-size: 60px; }
-.hero.detail .total .per { font-family: var(--mono); font-size: 14px; color: var(--ink-dim); letter-spacing: 0; }
-.hero.detail .total .dim { color: var(--ink-faint); }
+  /* The "exhale": the live-dot pulses once the instant the count-up lands. */
+  .hero.is-settled .label::before { animation: exhale 600ms var(--ease-out) 1; }
+  @keyframes exhale {
+    0%   { opacity: 0.55; box-shadow: 0 0 0 0 rgba(107, 210, 203, 0.0); }
+    40%  { opacity: 1;    box-shadow: 0 0 10px 2px rgba(107, 210, 203, 0.45); }
+    100% { opacity: 1;    box-shadow: 0 0 6px 0 rgba(107, 210, 203, 0.0); }
+  }
+}
 
-/* Payment-history events reuse .row/.amt; tag labels stay lowercase */
-.event .tag { text-transform: none; }
+/* Hover/state transitions: always smooth (disabled independently in reduced-motion). */
+.row.rowlink, .tag, .act, .export, .back, .scan,
+.row.rowlink .name, .row.rowlink .amt {
+  transition: background-color var(--dur-mid) var(--ease-out),
+              border-color     var(--dur-mid) var(--ease-out),
+              color            var(--dur-fast) var(--ease-out),
+              box-shadow       var(--dur-mid) var(--ease-out),
+              transform        var(--dur-fast) var(--ease-out);
+}
 
+/* Focus-visible: TEAL ring, instant, NEVER motion-gated. */
+a:focus-visible, button:focus-visible,
+.act:focus-visible, .export:focus-visible, .scan:focus-visible, .back:focus-visible {
+  outline: none; box-shadow: var(--focus-ring); border-radius: var(--r-xs);
+}
+/* Rows use an INSET outline: the section's overflow:hidden (needed for the hover
+   gradient) would clip an outset ring on edge rows. */
+.row.rowlink:focus-visible {
+  outline: 2px solid var(--focus); outline-offset: -3px; box-shadow: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+
+/* ============================================================================
+   RESPONSIVE
+   ============================================================================ */
 @media (max-width: 560px) {
-  .hero .total { font-size: 64px; }
-  .hero .total .cents { font-size: 38px; }
-  .hero.detail .total { font-size: 46px; }
-  .masthead { flex-direction: column; gap: 6px; }
+  .wrap { padding: var(--s-6) var(--s-3) var(--s-8); }
+  .masthead { flex-direction: column; align-items: flex-start; gap: var(--s-2); }
+  .total { font-size: clamp(52px, 16vw, 72px); }
+  .hero { padding: var(--s-5); }
+  .hero.detail .total { font-size: clamp(42px, 13vw, 56px); }
 }
-@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
