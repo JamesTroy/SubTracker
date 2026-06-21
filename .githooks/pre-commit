@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# ---------------------------------------------------------------------------
+# Secret guard — stops credentials from ever being committed.
+# Catches the two ways secrets leak:
+#   1) committing a .env file (even via `git add -f`, which bypasses .gitignore)
+#   2) pasting a key/token/private-key into a tracked source file
+#
+# Enable in any clone with:  git config core.hooksPath .githooks
+# Bypass intentionally with:  git commit --no-verify
+# Fails open on internal errors (never bricks commits); fails closed on a match.
+# ---------------------------------------------------------------------------
+
+staged=$(git diff --cached --name-only --diff-filter=ACM 2>/dev/null) || exit 0
+[ -z "$staged" ] && exit 0
+
+fail=0
+
+# 1) Block env files by name — anything matching .env / .env.* except the template.
+while IFS= read -r f; do
+  [ -z "$f" ] && continue
+  base=$(basename "$f")
+  case "$base" in
+    .env.example) : ;;                         # the documented template — allowed
+    .env|.env.*)
+      echo "BLOCKED  $f — looks like an env file (secrets). Not committable." ;
+      fail=1 ;;
+  esac
+done <<EOF
+$staged
+EOF
+
+# 2) Scan only the ADDED lines of staged files for high-signal secret patterns.
+patterns='(-----BEGIN [A-Z ]*PRIVATE KEY-----|sk-ant-[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|GOCSPX-[A-Za-z0-9_-]{10,}|eyJ[A-Za-z0-9_=-]{16,}\.[A-Za-z0-9_=-]{16,}\.[A-Za-z0-9_=-]{10,})'
+while IFS= read -r f; do
+  [ -z "$f" ] && continue
+  added=$(git diff --cached -U0 -- "$f" 2>/dev/null | grep -E '^\+' | grep -vE '^\+\+\+')
+  if printf '%s' "$added" | grep -Eq "$patterns"; then
+    echo "BLOCKED  $f — contains what looks like a live secret (key/token/private key)."
+    fail=1
+  fi
+done <<EOF
+$staged
+EOF
+
+if [ "$fail" -ne 0 ]; then
+  echo ""
+  echo "Commit aborted by .githooks/pre-commit (secret guard)."
+  echo "False positive? Re-run with:  git commit --no-verify"
+  exit 1
+fi
+exit 0

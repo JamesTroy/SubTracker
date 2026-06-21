@@ -93,6 +93,13 @@ node -e "console.log(require('crypto').randomBytes(24).toString('hex'))"     # C
 `CRON_SECRET` is optional locally; set it in production so the daily cron endpoint
 can't be triggered by anyone else.
 
+**Secret guard.** Every `.env*` file is gitignored (except `.env.example`), and a
+committed pre-commit hook (`.githooks/pre-commit`) refuses to commit any env file
+or key/token — even via `git add -f`. Enable it in a fresh clone with:
+```bash
+git config core.hooksPath .githooks
+```
+
 ### 4. Run
 ```bash
 npm install
