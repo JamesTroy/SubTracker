@@ -183,7 +183,10 @@ function keyForRoot(root: string, serviceName: string, fromName: string, t: stri
 }
 
 export function deriveServiceKey(e: EmailMeta, x: Extraction): string {
-  const t = (e.subject + " " + e.bodyText).toLowerCase();
+  // Include the unwrapped serviceName so a cross-sender receipt (Apple/Stripe)
+  // resolves the SAME sub-product as a direct email — otherwise "DashPass via
+  // Apple" fragments away from a direct "dashpass" pin.
+  const t = (e.subject + " " + e.bodyText + " " + (x.serviceName ?? "")).toLowerCase();
 
   // Keyword sub-product pins (cheaper than curation; split a product from its parent).
   if (/dashpass/.test(t)) return "doordash-dashpass";
@@ -293,14 +296,19 @@ export function runPipeline(
     if (x.amount && amount === null) push("L2 ground", "fail", `claimed ${x.amount.value} not grounded → nulled`);
     else if (amount !== null) push("L2 ground", "pass", `$${amount} grounded in quote`);
 
-    // L2b — decoy backstop
+    // L2b — decoy backstop. Only SUPPLIES an amount when L2a grounded none; it must
+    // never replace a verified grounded figure with an ungrounded keyword pick (a
+    // tax-inclusive "total" can outscore the real recurring "/mo" price — the LLM,
+    // with full context, is the more reliable source once it has grounded a quote).
     const allAmts = parseAllMoney(email.bodyText);
     if (allAmts.length > 1) {
       const pick = selectChargeAmount(email.bodyText);
       if (pick !== null) {
-        if (amount !== null && Math.abs(pick - amount) > 0.001) {
-          push("L2 decoy", "fail", `${allAmts.length} amounts → charge-context overrides to $${pick}`);
+        if (amount === null) {
+          push("L2 decoy", "pass", `${allAmts.length} amounts → charge-context picks $${pick} (no grounded amount)`);
           amount = pick;
+        } else if (Math.abs(pick - amount) > 0.001) {
+          push("L2 decoy", "info", `${allAmts.length} amounts → keeping grounded $${amount} over charge-context $${pick}`);
         } else {
           push("L2 decoy", "pass", `${allAmts.length} amounts → confirms $${pick}, decoys ignored`);
         }
@@ -392,13 +400,14 @@ export function runPipeline(
     }
 
     if (hasMarker) {
-      // A recurring marker confirms a subscription only with a corroborating signal:
-      // a real charge/lifecycle event (charged/upcoming/failed/cancelled/started) or a
-      // grounded amount. Marketing copy name-dropping "subscription"/"premium" with no
-      // charge and no lifecycle event (eventType "none") is asked about — even several
-      // such emails don't make a paid subscription.
+      // A recurring marker confirms a subscription ONLY with a real lifecycle event
+      // (charged/upcoming/failed/cancelled/started). A grounded price alone is NOT
+      // enough: a marketing blast ("Acme Premium subscription — just $19.99/mo")
+      // quotes a promotional price with eventType "none", and must be asked about
+      // rather than auto-confirmed as a paid subscription. The priced evidence is
+      // still stored, so a later genuine charge for the same key confirms it.
       const hasLifecycle = cs.some((c) => c.event !== "none");
-      if (hasLifecycle || repAmount !== null) {
+      if (hasLifecycle) {
         const dedup = cs.length > 1 ? ` (deduped ${cs.length} emails → 1)` : "";
         corrobTrace.push({ tag: "L3 corrob", level: "pass", msg: `${service}: explicit recurring marker${dedup} → CONFIRMED` });
         results.push({ ...base, status: "active", reason: cs.length > 1 ? `recurring marker; ${cs.length} emails deduped` : "explicit recurring marker" });
@@ -416,9 +425,12 @@ export function runPipeline(
       (c) => c.event === "charged" || c.event === "upcoming" ||
              c.event === "payment_failed" || c.event === "cancelled",
     );
-    if (!hasRealEvent && repAmount === null) {
+    // No real charge/renewal event → marketing or activation, regardless of whether
+    // a price was quoted. Ask rather than attaching an advertised figure as the
+    // subscription's amount (a grounded promo price must not mint a priced candidate).
+    if (!hasRealEvent) {
       corrobTrace.push({ tag: "L3 corrob", level: "fail",
-        msg: `${service}: only marketing/activation (no charge/upcoming/failed/cancelled, no amount) → REVIEW` });
+        msg: `${service}: only marketing/activation (no charge/upcoming/failed/cancelled) → REVIEW` });
       review.push({ messageId: head.id, serviceKey: service,
         reason: "only marketing/activation signal — no charge or renewal event; confirm this is a paid subscription?",
         raw: { serviceName: head.serviceName, eventType: head.event, confidence: head.confidence } });

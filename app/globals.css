@@ -494,3 +494,26 @@ a:focus-visible, button:focus-visible,
   .hero { padding: var(--s-5); }
   .hero.detail .total { font-size: clamp(42px, 13vw, 56px); }
 }
+
+/* --- Login -------------------------------------------------------------- */
+.login-card {
+  max-width: 380px;
+  margin: 18vh auto 0;
+  padding: var(--s-5, 32px);
+  text-align: center;
+}
+.login-title { font-family: var(--serif); font-size: 30px; letter-spacing: -0.01em; color: var(--ink); margin: 4px 0 0; }
+.login-sub { font-size: 13px; color: var(--ink-dim); margin: 10px 0 22px; line-height: 1.5; }
+.login-form { display: flex; flex-direction: column; gap: 12px; }
+.login-input {
+  width: 100%; box-sizing: border-box;
+  padding: 11px 13px;
+  font-family: var(--mono); font-size: 14px; color: var(--ink);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--glass-border);
+  border-radius: 10px;
+  outline: none;
+}
+.login-input:focus { border-color: var(--glass-border-hi); box-shadow: var(--focus-ring); }
+.login-form .scan { justify-content: center; text-align: center; }
+.login-err { margin-top: 14px; font-family: var(--mono); font-size: 11px; color: #e8a0a0; }

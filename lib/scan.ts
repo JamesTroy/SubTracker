@@ -1,6 +1,6 @@
 import { decrypt } from "./crypto";
 import { supabaseAdmin } from "./supabase";
-import { getAccessToken, searchMessageIds, getMessage, CANDIDATE_QUERY, TokenError } from "./gmail";
+import { getAccessToken, listMessageIdsPage, getMessage, CANDIDATE_QUERY, TokenError } from "./gmail";
 import { extractFromEmail } from "./extract";
 import { runPipeline } from "./guards";
 import { extractPdfAmount } from "./pdf";
@@ -8,12 +8,35 @@ import { PipelineInput } from "./types";
 
 const dollarsToCents = (d: number | null) => (d === null ? null : Math.round(d * 100));
 
+// Per-run backfill budget. Each run fetch+extracts at most WORK_CAP unseen emails
+// (the costly Anthropic part); older unseen mail is backlog the next run/cron picks
+// up. Sized to finish comfortably inside the 300s function budget. FETCH_CONCURRENCY
+// emails are read+extracted in parallel. LIST_CAP bounds id enumeration so a
+// pathological inbox can't loop forever. All env-tunable.
+const WORK_CAP = Math.max(1, Number(process.env.SCAN_WORK_CAP ?? 250));
+const FETCH_CONCURRENCY = Math.max(1, Number(process.env.SCAN_FETCH_CONCURRENCY ?? 8));
+const LIST_CAP = Math.max(WORK_CAP, Number(process.env.SCAN_LIST_CAP ?? 8000));
+
+// A run older than this is presumed dead (killed at the 300s function budget or
+// crashed), so its orphaned scan_run is reclaimed rather than blocking new scans.
+// Slightly above maxDuration (300s) so a genuinely-live run still wins the lock.
+const RUN_BUDGET_MS = 6 * 60_000;
+
 // Free-form LLM dates ("July 2026", "in 30 days") must NOT reach a `date` column —
 // a parse error there would abort the whole persist. Coerce to YYYY-MM-DD or null.
 const toDateOrNull = (v: string | null) => {
   if (!v) return null;
   const d = new Date(v);
   return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+};
+
+// Never let a re-scan erase or roll back a known renewal date. next_renewal isn't
+// stored per-evidence, so a later run whose emails don't restate it must not blank
+// the stored value — keep whichever YYYY-MM-DD is later (nulls lose).
+const maxDate = (a: string | null, b: string | null): string | null => {
+  if (!a) return b;
+  if (!b) return a;
+  return a >= b ? a : b;
 };
 
 type FetchedEmail = Awaited<ReturnType<typeof getMessage>>;
@@ -32,7 +55,7 @@ export type ScanOutcome =
       ok: true;
       scanned: number; new: number; active: number; pastDue: number; ending: number;
       review: number; rejected: number; pdfResolved: number; failed: number;
-      truncated: boolean; monthlyTotal: number;
+      moreToScan: boolean; backlog: number; monthlyTotal: number;
     }
   | { ok: false; status: number; error: string; reconnect?: boolean };
 
@@ -68,7 +91,8 @@ function rollup(series: Ev[]) {
 export async function runScan(onProgress: (p: ScanProgress) => void = () => {}): Promise<ScanOutcome> {
   const db = supabaseAdmin();
 
-  const { data: account, error: acctErr } = await db.from("gmail_accounts").select("*").limit(1).maybeSingle();
+  const { data: account, error: acctErr } = await db.from("gmail_accounts")
+    .select("*").order("created_at", { ascending: true }).limit(1).maybeSingle();
   if (acctErr) return { ok: false, status: 500, error: `account lookup: ${acctErr.message}` };
   if (!account) return { ok: false, status: 400, error: "No Gmail account connected" };
 
@@ -77,8 +101,16 @@ export async function runScan(onProgress: (p: ScanProgress) => void = () => {}):
   const { data: openRun } = await db.from("scan_runs")
     .select("id, started_at").eq("account_id", account.id).is("finished_at", null)
     .order("started_at", { ascending: false }).limit(1).maybeSingle();
-  if (openRun && Date.now() - new Date(openRun.started_at).getTime() < 10 * 60_000) {
-    return { ok: false, status: 409, error: "A scan is already running — try again in a moment." };
+  if (openRun) {
+    const age = Date.now() - new Date(openRun.started_at).getTime();
+    if (age < RUN_BUDGET_MS) {
+      return { ok: false, status: 409, error: "A scan is already running — try again in a moment." };
+    }
+    // Older than the function budget → it was killed mid-run (timeout/crash). Reclaim
+    // the orphan so a dead run can't block scans indefinitely, then proceed.
+    await db.from("scan_runs")
+      .update({ finished_at: new Date().toISOString(), error: "aborted (exceeded function budget or crashed)" })
+      .eq("id", openRun.id);
   }
 
   const { data: run, error: runErr } = await db
@@ -91,19 +123,36 @@ export async function runScan(onProgress: (p: ScanProgress) => void = () => {}):
       decrypt(account.enc_refresh_token, account.enc_iv, account.enc_tag),
     );
 
-    // Find candidates (capped); skip ones already processed (idempotency).
+    // Enumerate ALL candidate ids (newest-first; id-only list calls are cheap),
+    // then keep only those not already processed. scanned_messages IS the backfill
+    // cursor: each run fetch+extracts the next WORK_CAP unseen (newest-first), so
+    // repeated scans / the daily cron walk the full history without one unbounded
+    // run that would blow the 300s function budget or spike Anthropic spend.
     onProgress({ phase: "search" });
-    const { ids: allIds, truncated } = await searchMessageIds(accessToken, CANDIDATE_QUERY);
-    const newIds: string[] = [];
-    for (const batch of chunk(allIds, 200)) {
+    const candidateIds: string[] = [];
+    let pageToken: string | undefined;
+    do {
+      const page = await listMessageIdsPage(accessToken, CANDIDATE_QUERY, pageToken);
+      candidateIds.push(...page.ids);
+      pageToken = page.nextPageToken;
+    } while (pageToken && candidateIds.length < LIST_CAP);
+    const enumTruncated = !!pageToken; // more candidates than LIST_CAP (pathological)
+
+    const unseen: string[] = [];
+    for (const batch of chunk(candidateIds, 200)) {
       // seen-set = every previously PROCESSED message (not just evidence-backed),
       // so rejected/dropped emails aren't re-fetched + re-extracted every scan.
       const { data: seen, error } = await db
         .from("scanned_messages").select("gmail_message_id").in("gmail_message_id", batch);
       if (error) throw new Error(`seen lookup: ${error.message}`);
       const seenSet = new Set((seen ?? []).map((r) => r.gmail_message_id));
-      for (const id of batch) if (!seenSet.has(id)) newIds.push(id);
+      for (const id of batch) if (!seenSet.has(id)) unseen.push(id);
     }
+    // Bound the costly work (fetch + Anthropic extract) to WORK_CAP per run; the
+    // rest is backlog the next run/cron day picks up (still newest-first).
+    const newIds = unseen.slice(0, WORK_CAP);
+    const backlog = unseen.length - newIds.length;
+    const moreToScan = backlog > 0 || enumTruncated;
 
     // Fetch + extract each new email. allSettled: one bad email/Anthropic hiccup is
     // skipped + counted, never fatal to the whole scan.
@@ -112,7 +161,7 @@ export async function runScan(onProgress: (p: ScanProgress) => void = () => {}):
     let failed = 0;
     let processed = 0;
     if (newIds.length) onProgress({ phase: "fetch", done: 0, total: newIds.length });
-    for (const batch of chunk(newIds, 5)) {
+    for (const batch of chunk(newIds, FETCH_CONCURRENCY)) {
       const settled = await Promise.allSettled(
         batch.map(async (id) => {
           const email = await getMessage(accessToken, id);
@@ -158,38 +207,47 @@ export async function runScan(onProgress: (p: ScanProgress) => void = () => {}):
     const allSubs = [...ledger.active, ...ledger.pastDue, ...ledger.ending, ...ledger.candidates];
     const keys = [...new Set(allSubs.map((s) => s.serviceKey))];
 
-    // Pull existing subs (for anti-regression status) and existing evidence (so
-    // rollups reflect the ALL-TIME series, not just this run's emails).
+    // Pull existing subs (for anti-regression status + renewal coalesce) and existing
+    // evidence (so rollups reflect the ALL-TIME series, not just this run's emails).
     const existingStatus = new Map<string, string>();
-    const evByKey = new Map<string, Ev[]>();
+    const existingRenewal = new Map<string, string | null>();
+    // Keyed by gmail_message_id so a re-extracted email (orphaned-evidence retry)
+    // can't be counted twice — this run's entry overwrites the stored one.
+    const evByKey = new Map<string, Map<string, Ev>>();
+    const evFor = (k: string) => evByKey.get(k) ?? evByKey.set(k, new Map()).get(k)!;
     if (keys.length) {
       const [{ data: exSubs, error: e1 }, { data: exEv, error: e2 }] = await Promise.all([
-        db.from("subscriptions").select("service_key, status").in("service_key", keys),
-        db.from("charge_evidence").select("service_key, amount_cents, received_at").in("service_key", keys),
+        db.from("subscriptions").select("service_key, status, next_renewal").in("service_key", keys),
+        db.from("charge_evidence").select("gmail_message_id, service_key, amount_cents, received_at").in("service_key", keys),
       ]);
       if (e1) throw new Error(`subscriptions read: ${e1.message}`);
       if (e2) throw new Error(`evidence read: ${e2.message}`);
-      for (const r of exSubs ?? []) existingStatus.set(r.service_key, r.status);
-      for (const r of exEv ?? []) (evByKey.get(r.service_key) ?? evByKey.set(r.service_key, []).get(r.service_key)!).push(r);
+      for (const r of exSubs ?? []) { existingStatus.set(r.service_key, r.status); existingRenewal.set(r.service_key, r.next_renewal); }
+      for (const r of exEv ?? []) evFor(r.service_key).set(r.gmail_message_id, { amount_cents: r.amount_cents, received_at: r.received_at });
     }
-    // Merge this run's new evidence into the per-service series.
+    // Merge this run's new evidence into the per-service series (by message id).
     for (const e of ledger.evidence) {
       if (!keys.includes(e.serviceKey)) continue;
-      (evByKey.get(e.serviceKey) ?? evByKey.set(e.serviceKey, []).get(e.serviceKey)!)
-        .push({ amount_cents: dollarsToCents(e.amount), received_at: e.receivedAt });
+      evFor(e.serviceKey).set(e.messageId, { amount_cents: dollarsToCents(e.amount), received_at: e.receivedAt });
     }
 
     // 1) Upsert subscriptions (mints ids), with all-time rollups + anti-regression status.
     const subRows = allSubs.map((s) => {
       const ex = existingStatus.get(s.serviceKey);
       let status: string = s.status;
-      if (ex && (STATUS_RANK[ex] ?? 0) > (STATUS_RANK[s.status] ?? 0) && s.evidenceCount < 2) status = ex;
-      const roll = rollup(evByKey.get(s.serviceKey) ?? []);
+      // Anti-regression: a partial re-scan that re-sees a confirmed sub as a weaker
+      // signal must not downgrade it — UNLESS this is an explicit lifecycle-down event
+      // (a real cancellation or payment failure), which is exactly the signal that
+      // SHOULD move status down even from a single corroborating email.
+      const isLifecycleDown = s.eventType === "cancelled" || s.eventType === "payment_failed";
+      if (ex && !isLifecycleDown && (STATUS_RANK[ex] ?? 0) > (STATUS_RANK[s.status] ?? 0) && s.evidenceCount < 2) status = ex;
+      const roll = rollup([...(evByKey.get(s.serviceKey)?.values() ?? [])]);
       return {
         service_key: s.serviceKey, service_name: s.serviceName, service_domain: s.serviceDomain,
         amount_cents: roll.amount_cents, previous_amount_cents: roll.previous_amount_cents,
         price_changed_at: roll.price_changed_at, currency: s.currency, billing_cycle: s.billingCycle,
-        status, next_renewal: toDateOrNull(s.nextRenewal), confidence: s.confidence,
+        status, next_renewal: maxDate(existingRenewal.get(s.serviceKey) ?? null, toDateOrNull(s.nextRenewal)),
+        confidence: s.confidence,
         evidence_count: roll.evidence_count, last_seen: roll.last_seen, updated_at: now,
       };
     });
@@ -237,7 +295,7 @@ export async function runScan(onProgress: (p: ScanProgress) => void = () => {}):
     }
 
     const { error: srErr } = await db.from("scan_runs").update({
-      finished_at: now, emails_scanned: allIds.length, emails_new: newIds.length,
+      finished_at: now, emails_scanned: candidateIds.length, emails_new: newIds.length,
       n_active: ledger.active.length, n_past_due: ledger.pastDue.length, n_ending: ledger.ending.length,
       n_review: ledger.review.length, n_rejected: ledger.rejected.length, n_failed: failed,
     }).eq("id", runId);
@@ -247,10 +305,10 @@ export async function runScan(onProgress: (p: ScanProgress) => void = () => {}):
 
     return {
       ok: true,
-      scanned: allIds.length, new: newIds.length,
+      scanned: candidateIds.length, new: newIds.length,
       active: ledger.active.length, pastDue: ledger.pastDue.length, ending: ledger.ending.length,
       review: ledger.review.length, rejected: ledger.rejected.length,
-      pdfResolved, failed, truncated, monthlyTotal,
+      pdfResolved, failed, moreToScan, backlog, monthlyTotal,
     };
   } catch (e: unknown) {
     const reconnect = e instanceof TokenError;

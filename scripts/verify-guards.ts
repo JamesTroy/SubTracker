@@ -112,6 +112,31 @@ const inputs: PipelineInput[] = [
        bodyText: "thanks for joining someapp" },
      { isSubscription: true, serviceName: "SomeApp", eventType: "started", confidence: 0.7 }),
 
+  // Marketing blast: a recurring MARKER + a grounded PROMO price but eventType "none"
+  // (no charge happened). Must go to review, NOT auto-confirm as an active paid sub.
+  mk({ id: "acme-promo", fromName: "Acme", fromDomain: "acme.io", subject: "Join Acme Premium",
+       bodyText: "Acme Premium subscription. Just $19.99/mo. Upgrade today!" },
+     { isSubscription: true, serviceName: "Acme", amount: { value: "$19.99", quote: "Just $19.99/mo" }, billingCycle: "monthly", eventType: "none", hasRecurringMarker: true, confidence: 0.7 }),
+
+  // Marketing blast with NO marker but a grounded promo price + eventType "none".
+  // The low-signal gate must send it to review WITHOUT minting a priced candidate.
+  mk({ id: "bolt-promo", fromName: "Bolt", fromDomain: "bolt.io", subject: "Bolt Pro launch",
+       bodyText: "Get Bolt Pro! Plans from $29.99/mo." },
+     { isSubscription: false, serviceName: "Bolt", amount: { value: "$29.99", quote: "Plans from $29.99/mo" }, billingCycle: "monthly", eventType: "none", hasRecurringMarker: false, confidence: 0.6 }),
+
+  // Decoy backstop must NOT override the LLM's correctly-grounded recurring price
+  // with a higher tax-inclusive "total" the keyword heuristic scores higher.
+  mk({ id: "streamco", fromName: "StreamCo", fromDomain: "streamco.com", subject: "Your StreamCo receipt",
+       bodyText: "Monthly plan: $9.99. Total charged including tax: $107.89." },
+     { isSubscription: true, serviceName: "StreamCo", amount: { value: "$9.99", quote: "Monthly plan: $9.99" }, billingCycle: "monthly", eventType: "charged", hasRecurringMarker: true, confidence: 0.95 }),
+
+  // Cross-sender pin: a DashPass charge via the Apple relay whose BODY lacks the word
+  // "dashpass" must still resolve to "doordash-dashpass" (serviceName now in the pin
+  // haystack), matching a direct DoorDash email rather than fragmenting to "doordash".
+  mk({ id: "dash-apple", fromName: "Apple", fromDomain: "privaterelay.appleid.com", subject: "Your receipt from Apple",
+       bodyText: "Receipt. Amount paid $9.99." },
+     { isSubscription: true, serviceName: "DoorDash DashPass", serviceDomain: "doordash.com", amount: { value: "$9.99", quote: "Amount paid $9.99" }, billingCycle: "monthly", eventType: "charged", hasRecurringMarker: true, confidence: 0.9 }),
+
   // malformed extraction → must be caught by Zod
   { email: { id: "bad", fromName: "X", fromDomain: "x.com", subject: "Receipt", date: "2026-06-12T10:00", bodyText: "" },
     extraction: { isSubscription: "yes", confidence: 1.4 } },
@@ -149,6 +174,15 @@ const checks: [string, boolean][] = [
     (() => { const r = L.active.find((s) => s.serviceKey === "replit"); return !!r && r.amount === 40 && r.evidenceCount === 3; })()],
   ["Low-signal activation → review (not active)",
     L.review.some((r) => r.serviceKey === "someapp") && !L.active.some((s) => s.serviceKey === "someapp")],
+  ["Promo marker + price, no lifecycle → review (not active)",
+    L.review.some((r) => r.serviceKey === "acme") && !L.active.some((s) => s.serviceKey === "acme")],
+  ["Promo no-marker + price, no event → review (no priced candidate)",
+    L.review.some((r) => r.serviceKey === "bolt") &&
+    !L.active.some((s) => s.serviceKey === "bolt") && !L.candidates.some((s) => s.serviceKey === "bolt")],
+  ["Decoy keeps grounded $9.99 over tax-total $107.89",
+    L.active.find((s) => s.serviceKey === "streamco")?.amount === 9.99],
+  ["Cross-sender pin: DashPass via Apple → 'doordash-dashpass'",
+    L.evidence.some((e) => e.messageId === "dash-apple" && e.serviceKey === "doordash-dashpass")],
   ["registrableRoot strips subdomains + TLDs",
     registrableRoot("emailinfo.bestbuy.com") === "bestbuy" && registrableRoot("m.ifit.com") === "ifit" &&
     registrableRoot("care.wellnesswag.com") === "wellnesswag" && registrableRoot("foo.co.uk") === "foo"],

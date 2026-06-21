@@ -19,9 +19,12 @@ type Row = {
 
 const dollars = (c: number | null) => (c === null ? "" : (c / 100).toFixed(2));
 
-// CSV-escape: wrap in quotes and double any embedded quotes when needed.
+// CSV-escape: neutralize spreadsheet formula injection (CWE-1236) by prefixing a
+// quote when a cell starts with =,+,-,@,tab,CR — a malicious email display name like
+// `=cmd|...` flows into service_name — then wrap/quote-double for normal CSV safety.
 const cell = (v: string | number | null) => {
-  const s = v === null || v === undefined ? "" : String(v);
+  let s = v === null || v === undefined ? "" : String(v);
+  if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
 

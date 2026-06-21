@@ -31,27 +31,25 @@ export async function getAccessToken(refreshToken: string): Promise<string> {
   return (await res.json()).access_token as string;
 }
 
-// List message ids matching a Gmail search query, paging up to `cap`.
-export async function searchMessageIds(
+// One page of message ids (newest-first, up to 500 — Gmail's per-page max).
+// The low-level primitive: callers paginate by passing back `nextPageToken`.
+// Read-only; returns only ids, so enumerating a whole inbox is cheap (no bodies).
+export async function listMessageIdsPage(
   accessToken: string,
   query: string,
-  cap = 500,
-): Promise<{ ids: string[]; truncated: boolean }> {
-  const ids: string[] = [];
-  let pageToken: string | undefined;
-  do {
-    const url = new URL(`${API}/messages`);
-    url.searchParams.set("q", query);
-    url.searchParams.set("maxResults", "100");
-    if (pageToken) url.searchParams.set("pageToken", pageToken);
-    const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
-    if (!res.ok) throw new Error(`messages.list failed (${res.status})`);
-    const data = await res.json();
-    for (const m of data.messages ?? []) ids.push(m.id);
-    pageToken = data.nextPageToken;
-  } while (pageToken && ids.length < cap);
-  // truncated = Gmail still had more pages when we stopped at the cap.
-  return { ids: ids.slice(0, cap), truncated: !!pageToken };
+  pageToken?: string,
+): Promise<{ ids: string[]; nextPageToken?: string }> {
+  const url = new URL(`${API}/messages`);
+  url.searchParams.set("q", query);
+  url.searchParams.set("maxResults", "500");
+  if (pageToken) url.searchParams.set("pageToken", pageToken);
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!res.ok) throw new Error(`messages.list failed (${res.status})`);
+  const data = await res.json();
+  return {
+    ids: (data.messages ?? []).map((m: { id: string }) => m.id),
+    nextPageToken: data.nextPageToken as string | undefined,
+  };
 }
 
 interface GmailPart {

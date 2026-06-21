@@ -11,7 +11,13 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   const secret = process.env.CRON_SECRET;
-  if (secret && req.headers.get("authorization") !== `Bearer ${secret}`) {
+  if (!secret) {
+    // Fail CLOSED in production: an unset secret must not leave the scan trigger
+    // public (it would let anyone run a scan / read the outcome). Only dev runs open.
+    if (process.env.NODE_ENV === "production") {
+      return NextResponse.json({ error: "CRON_SECRET not configured" }, { status: 401 });
+    }
+  } else if (req.headers.get("authorization") !== `Bearer ${secret}`) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
@@ -19,7 +25,8 @@ export async function GET(req: NextRequest) {
   if (outcome.ok) {
     console.log(
       `[cron/scan] ok — scanned ${outcome.scanned}, new ${outcome.new}, ` +
-        `active ${outcome.active}, review ${outcome.review}, pdfResolved ${outcome.pdfResolved}`,
+        `active ${outcome.active}, review ${outcome.review}, pdfResolved ${outcome.pdfResolved}` +
+        (outcome.moreToScan ? `, backlog ${outcome.backlog} (will continue next run)` : ", inbox fully covered"),
     );
   } else {
     console.error(`[cron/scan] failed (${outcome.status}): ${outcome.error}`);

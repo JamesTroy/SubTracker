@@ -16,7 +16,7 @@ export default async function Page() {
     db.from("subscriptions").select("*").order("amount_cents", { ascending: false, nullsFirst: false }),
     db.from("review_items").select("*").eq("status", "pending").order("created_at"),
     db.from("scan_runs").select("*").order("started_at", { ascending: false }).limit(1).maybeSingle(),
-    db.from("gmail_accounts").select("email,last_scan_at").maybeSingle(),
+    db.from("gmail_accounts").select("email,last_scan_at").order("created_at", { ascending: true }).limit(1).maybeSingle(),
   ]);
 
   const all = (subs ?? []) as Sub[];

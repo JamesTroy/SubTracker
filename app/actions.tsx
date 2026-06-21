@@ -65,15 +65,15 @@ export function ScanButton() {
         });
         return;
       }
-      // A partial scan (failed emails or a truncated search) is NOT a clean success.
-      const o = outcome as { scanned: number; new: number; active: number; review: number; failed: number; truncated: boolean };
-      const warn = o.failed > 0 || o.truncated;
+      // A partial scan (failed emails, or older mail still queued) is NOT a clean success.
+      const o = outcome as { scanned: number; new: number; active: number; review: number; failed: number; moreToScan: boolean; backlog: number };
+      const warn = o.failed > 0 || o.moreToScan;
       const parts = [`scanned ${o.scanned}`, `${o.new} new`, `${o.active} active`, `${o.review} to review`];
       if (o.failed > 0) parts.push(`${o.failed} failed`);
-      setMsg({
-        ok: !warn,
-        text: parts.join(" · ") + (o.truncated ? " — hit the 500 cap, older mail not yet scanned" : ""),
-      });
+      const tail = o.moreToScan
+        ? ` — ${o.backlog.toLocaleString()} older email${o.backlog === 1 ? "" : "s"} still queued, scan again to continue`
+        : "";
+      setMsg({ ok: !warn, text: parts.join(" · ") + tail });
       router.refresh();
     } catch (e) {
       setMsg({ ok: false, text: `scan failed — ${e instanceof Error ? e.message : "network error"}` });
