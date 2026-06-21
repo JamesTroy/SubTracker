@@ -27,3 +27,8 @@ yarn-error.log*
 
 # vercel
 .vercel
+
+# supabase CLI artifacts (never commit these — may contain refs/creds)
+supabase/.temp
+supabase/.branches
+supabase/.env
