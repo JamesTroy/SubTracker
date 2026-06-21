@@ -33,10 +33,11 @@ export default async function Page() {
       <div className="masthead">
         <div>
           <div className="eyebrow">build quiet · ship loud</div>
-          <h1>Ledger</h1>
+          <h1>SubTracker V1</h1>
         </div>
         <div className="scanbar">
           <span className="when">{account?.email ? `synced ${ago(account.last_scan_at)}` : "not connected"}</span>
+          {scan?.error && <span className="when err" title={scan.error}>· last scan failed</span>}
           {account?.email ? <ScanButton /> : <a className="scan" href="/api/auth/google">Connect Gmail</a>}
         </div>
       </div>

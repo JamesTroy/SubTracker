@@ -9,7 +9,7 @@ const mono = IBM_Plex_Mono({ subsets: ["latin"], weight: ["400", "500", "600"], 
 const body = Inter({ subsets: ["latin"], variable: "--font-body", display: "swap" });
 
 export const metadata: Metadata = {
-  title: "Ledger — subscription tracker",
+  title: "SubTracker V1 — subscription tracker",
   description: "What you actually pay every month.",
 };
 

@@ -231,6 +231,12 @@ body::after {
                letter-spacing: -0.01em; color: var(--ink); margin-top: 4px; }
 .scanbar { display: flex; align-items: center; gap: var(--s-3); }
 .scanbar .when { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); }
+.scanctl { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.scanmsg { font-family: var(--mono); font-size: 11px; color: var(--ink-dim); line-height: 1.45;
+           max-width: 280px; text-align: right; }
+.scanmsg.err { color: var(--rust); }
+.scanmsg .reconnect { color: var(--amber); text-decoration: underline; text-underline-offset: 2px; }
+.when.err { color: var(--rust); }
 
 /* glass-chip controls: Scan / Connect / back */
 button.scan, a.scan {

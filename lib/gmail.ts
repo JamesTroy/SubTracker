@@ -5,6 +5,10 @@ import { EmailMeta } from "./types";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const API = "https://gmail.googleapis.com/gmail/v1/users/me";
 
+// Refresh token is dead (expired in "Testing" mode, or the user revoked access).
+// Distinct type so the scan can answer 401 + "reconnect" instead of a raw 500.
+export class TokenError extends Error {}
+
 // Exchange a refresh token for a short-lived access token.
 export async function getAccessToken(refreshToken: string): Promise<string> {
   const res = await fetch(TOKEN_URL, {
@@ -19,8 +23,9 @@ export async function getAccessToken(refreshToken: string): Promise<string> {
   });
   if (!res.ok) {
     const body = await res.text();
-    // invalid_grant here usually means the consent screen is still in "Testing"
-    // (7-day token expiry) or the user revoked access — prompt a reconnect.
+    if (res.status === 400 && body.includes("invalid_grant")) {
+      throw new TokenError("Google access expired or was revoked — reconnect your inbox.");
+    }
     throw new Error(`Token refresh failed (${res.status}): ${body}`);
   }
   return (await res.json()).access_token as string;
@@ -31,7 +36,7 @@ export async function searchMessageIds(
   accessToken: string,
   query: string,
   cap = 500,
-): Promise<string[]> {
+): Promise<{ ids: string[]; truncated: boolean }> {
   const ids: string[] = [];
   let pageToken: string | undefined;
   do {
@@ -45,7 +50,8 @@ export async function searchMessageIds(
     for (const m of data.messages ?? []) ids.push(m.id);
     pageToken = data.nextPageToken;
   } while (pageToken && ids.length < cap);
-  return ids.slice(0, cap);
+  // truncated = Gmail still had more pages when we stopped at the cap.
+  return { ids: ids.slice(0, cap), truncated: !!pageToken };
 }
 
 interface GmailPart {

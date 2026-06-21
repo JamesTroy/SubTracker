@@ -13,10 +13,13 @@ export default async function SubPage({ params }: { params: Promise<{ id: string
   if (!sub) notFound();
   const s = sub as SubDetail;
 
+  // Link by subscription_id ONLY. The old service_key arm both allowed a raw
+  // interpolated value into the PostgREST filter and surfaced rejected-group
+  // evidence (which keeps its service_key but has no subscription_id) as history.
   const { data: ev } = await db
     .from("charge_evidence")
     .select("id, received_at, event_type, amount_cents, subject, from_name, amount_quote")
-    .or(`subscription_id.eq.${id},service_key.eq.${s.service_key}`)
+    .eq("subscription_id", id)
     .order("received_at", { ascending: false });
   const history = (ev ?? []) as Evidence[];
 
@@ -25,7 +28,7 @@ export default async function SubPage({ params }: { params: Promise<{ id: string
       <div className="masthead">
         <div>
           <div className="eyebrow">build quiet · ship loud</div>
-          <h1>Ledger</h1>
+          <h1>SubTracker V1</h1>
         </div>
         <Link className="back" href="/">← all subscriptions</Link>
       </div>

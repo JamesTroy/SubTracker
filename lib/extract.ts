@@ -3,8 +3,10 @@ import { EmailMeta, Extraction } from "./types";
 
 // Lazily constructed so importing this module (e.g. during `next build`'s route
 // analysis) doesn't require ANTHROPIC_API_KEY — only an actual scan does.
+// maxRetries: the SDK retries 429/5xx/overloaded with backoff, so a transient
+// Anthropic hiccup mid-scan doesn't silently drop a subscription.
 let _anthropic: Anthropic | null = null;
-const anthropic = () => (_anthropic ??= new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }));
+const anthropic = () => (_anthropic ??= new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, maxRetries: 4 }));
 
 // Sonnet by default for accuracy; set EXTRACTION_MODEL=claude-haiku-4-5-20251001
 // to cut cost on high inbox volumes.
@@ -78,23 +80,26 @@ const TOOL: Anthropic.Tool = {
 };
 
 export async function extractFromEmail(email: EmailMeta): Promise<Extraction> {
-  const res = await anthropic().messages.create({
-    model: MODEL,
-    max_tokens: 600,
-    system: SYSTEM,
-    tools: [TOOL],
-    tool_choice: { type: "tool", name: "record_extraction" },
-    messages: [
-      {
-        role: "user",
-        content:
-          `From: ${email.fromName} <…@${email.fromDomain}>\n` +
-          `Subject: ${email.subject}\n` +
-          `Date: ${email.date}\n\n` +
-          `${email.bodyText}`,
-      },
-    ],
-  });
+  const content =
+    `From: ${email.fromName} <…@${email.fromDomain}>\n` +
+    `Subject: ${email.subject}\n` +
+    `Date: ${email.date}\n\n` +
+    `${email.bodyText}`;
+  const call = (maxTokens: number) =>
+    anthropic().messages.create({
+      model: MODEL,
+      max_tokens: maxTokens,
+      system: SYSTEM,
+      tools: [TOOL],
+      tool_choice: { type: "tool", name: "record_extraction" },
+      messages: [{ role: "user", content }],
+    });
+
+  // 1500 fits the forced tool call comfortably; if a long receipt still truncates
+  // the tool JSON (stop_reason "max_tokens"), retry once bigger rather than handing
+  // guards a malformed object that becomes permanent review-queue noise.
+  let res = await call(1500);
+  if (res.stop_reason === "max_tokens") res = await call(3000);
 
   const block = res.content.find((b) => b.type === "tool_use");
   if (!block || block.type !== "tool_use") {

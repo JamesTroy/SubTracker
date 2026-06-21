@@ -61,7 +61,7 @@ export default function PreviewPage() {
       <div className="masthead">
         <div>
           <div className="eyebrow">build quiet · ship loud</div>
-          <h1>Ledger</h1>
+          <h1>SubTracker V1</h1>
         </div>
         <div className="scanbar">
           <span className="when">synced 2h ago</span>
