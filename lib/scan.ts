@@ -21,6 +21,12 @@ type FetchedEmail = Awaited<ReturnType<typeof getMessage>>;
 // Status strength, so a partial re-scan can never downgrade a confirmed sub.
 const STATUS_RANK: Record<string, number> = { candidate: 0, ending: 1, past_due: 2, active: 3 };
 
+// Live progress, streamed to the client so the Scan button can show a tracker.
+export type ScanProgress =
+  | { phase: "search" }
+  | { phase: "fetch"; done: number; total: number }
+  | { phase: "persist" };
+
 export type ScanOutcome =
   | {
       ok: true;
@@ -59,7 +65,7 @@ function rollup(series: Ev[]) {
 // Idempotent on gmail_message_id. Shared by POST /api/scan and the cron route.
 // Every DB call is error-checked: a failed write throws into the catch and is
 // recorded + surfaced, never a silent partial-success.
-export async function runScan(): Promise<ScanOutcome> {
+export async function runScan(onProgress: (p: ScanProgress) => void = () => {}): Promise<ScanOutcome> {
   const db = supabaseAdmin();
 
   const { data: account, error: acctErr } = await db.from("gmail_accounts").select("*").limit(1).maybeSingle();
@@ -85,7 +91,8 @@ export async function runScan(): Promise<ScanOutcome> {
       decrypt(account.enc_refresh_token, account.enc_iv, account.enc_tag),
     );
 
-    // Find candidates (capped); skip ones already in charge_evidence (idempotency).
+    // Find candidates (capped); skip ones already processed (idempotency).
+    onProgress({ phase: "search" });
     const { ids: allIds, truncated } = await searchMessageIds(accessToken, CANDIDATE_QUERY);
     const newIds: string[] = [];
     for (const batch of chunk(allIds, 200)) {
@@ -103,6 +110,8 @@ export async function runScan(): Promise<ScanOutcome> {
     const inputs: PipelineInput[] = [];
     const emailById = new Map<string, FetchedEmail>();
     let failed = 0;
+    let processed = 0;
+    if (newIds.length) onProgress({ phase: "fetch", done: 0, total: newIds.length });
     for (const batch of chunk(newIds, 5)) {
       const settled = await Promise.allSettled(
         batch.map(async (id) => {
@@ -116,6 +125,8 @@ export async function runScan(): Promise<ScanOutcome> {
         if (s.status === "fulfilled") inputs.push(s.value);
         else { failed++; console.error("[scan] email failed:", s.reason instanceof Error ? s.reason.message : s.reason); }
       }
+      processed += batch.length;
+      onProgress({ phase: "fetch", done: Math.min(processed, newIds.length), total: newIds.length });
     }
 
     // Durable user decisions (the learning loop). Fail loudly if it can't be read —
@@ -140,6 +151,7 @@ export async function runScan(): Promise<ScanOutcome> {
       }
     }
     const monthlyTotal = ledger.active.reduce((t, s) => t + (s.amount ?? 0), 0);
+    onProgress({ phase: "persist" });
 
     // --- Persist (all error-checked) ---------------------------------------
     const now = new Date().toISOString();
