@@ -68,6 +68,12 @@ const inputs: PipelineInput[] = [
        bodyText: "You purchased Midnight Epic Edition." },
      { isSubscription: false, serviceName: "Battle.net", eventType: "none", confidence: 0.2 }),
 
+  // marketing email that name-drops "Premium" — a recurring marker but no charge,
+  // no lifecycle event, single email. Must go to review, NOT auto-confirm as active.
+  mk({ id: "linkedin", fromName: "LinkedIn", fromDomain: "linkedin.com", subject: "1 person noticed you",
+       bodyText: "Upgrade to LinkedIn Premium to see who viewed your profile." },
+     { isSubscription: true, serviceName: "LinkedIn", billingCycle: "monthly", eventType: "none", hasRecurringMarker: true, confidence: 0.6 }),
+
   // malformed extraction → must be caught by Zod
   { email: { id: "bad", fromName: "X", fromDomain: "x.com", subject: "Receipt", date: "2026-06-12T10:00", bodyText: "" },
     extraction: { isSubscription: "yes", confidence: 1.4 } },
@@ -92,6 +98,8 @@ const checks: [string, boolean][] = [
       return !!n && n.amount === 10 && n.previousAmount === 8 && n.priceChangedAt !== null; })()],
   ["Reddit stable price (no false price-change)",
     L.active.find((s) => s.serviceKey === "reddit-premium")?.previousAmount === null],
+  ["LinkedIn marketing → review (marker but no charge/lifecycle)",
+    L.review.some((r) => r.serviceKey === "linkedin") && !L.active.some((s) => s.serviceKey === "linkedin")],
 ];
 
 console.log("\nLEDGER");

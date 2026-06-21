@@ -272,9 +272,20 @@ export function runPipeline(
     }
 
     if (hasMarker) {
-      const dedup = cs.length > 1 ? ` (deduped ${cs.length} emails → 1)` : "";
-      corrobTrace.push({ tag: "L3 corrob", level: "pass", msg: `${service}: explicit recurring marker${dedup} → CONFIRMED` });
-      results.push({ ...base, status: "active", reason: cs.length > 1 ? `recurring marker; ${cs.length} emails deduped` : "explicit recurring marker" });
+      // A recurring marker confirms a subscription only with a corroborating signal:
+      // a real charge/lifecycle event (charged/upcoming/failed/cancelled/started) or a
+      // grounded amount. Marketing copy name-dropping "subscription"/"premium" with no
+      // charge and no lifecycle event (eventType "none") is asked about — even several
+      // such emails don't make a paid subscription.
+      const hasLifecycle = cs.some((c) => c.event !== "none");
+      if (hasLifecycle || repAmount !== null) {
+        const dedup = cs.length > 1 ? ` (deduped ${cs.length} emails → 1)` : "";
+        corrobTrace.push({ tag: "L3 corrob", level: "pass", msg: `${service}: explicit recurring marker${dedup} → CONFIRMED` });
+        results.push({ ...base, status: "active", reason: cs.length > 1 ? `recurring marker; ${cs.length} emails deduped` : "explicit recurring marker" });
+      } else {
+        corrobTrace.push({ tag: "L3 corrob", level: "fail", msg: `${service}: recurring word but no charge/lifecycle/corroboration → REVIEW` });
+        review.push({ messageId: head.id, serviceKey: service, reason: "mentions a subscription/premium but shows no charge or lifecycle event — confirm?", raw: { serviceName: head.serviceName, eventType: head.event, confidence: head.confidence } });
+      }
       continue;
     }
 

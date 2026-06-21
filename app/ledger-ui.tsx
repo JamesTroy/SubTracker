@@ -88,7 +88,11 @@ export function Row({ s, tag }: { s: Sub; tag?: "due" | "end" }) {
           {s.next_renewal ? ` · renews ${s.next_renewal}` : ""}
         </div>
       </div>
-      <div className={`amt${amt === null ? " dim" : ""}`}>{amt === null ? "needs PDF" : `$${amt}`}</div>
+      <div className={`amt${amt === null ? " dim" : ""}`}>
+        {amt === null
+          ? <span title="No charge amount found in this subscription's emails yet — it fills in when a receipt with a price arrives.">no price</span>
+          : `$${amt}`}
+      </div>
     </Link>
   );
 }
@@ -129,7 +133,7 @@ export function DetailHero({ sub }: { sub: SubDetail }) {
       <div className="detail-name">{sub.service_name}</div>
       <div className="total">
         {amt === null ? (
-          <span className="dim">needs PDF</span>
+          <span className="dim" title="No charge amount found in this subscription's emails yet.">no price</span>
         ) : (
           <><span className="sign">$</span><span className="dollars">{d}</span><span className="cents">.{c}</span></>
         )}
