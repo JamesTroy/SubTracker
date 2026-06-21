@@ -40,7 +40,7 @@ const parseAllMoney = (s: string): number[] => {
 
 // L2a: grounding — the claimed amount must appear in its cited quote, and the
 // quote must be a real substring of the body. Catches fabricated amounts.
-function groundAmount(ev: { value: string; quote: string } | null, body: string): number | null {
+export function groundAmount(ev: { value: string; quote: string } | null, body: string): number | null {
   if (!ev) return null;
   const claimed = parseMoney(ev.value);
   if (claimed === null) return null;
@@ -69,23 +69,143 @@ function selectChargeAmount(body: string): number | null {
   return pickChargeAmount(body)?.amount ?? null;
 }
 
-// L2c: processor unwrap — sender domain is never the service for these.
-const PROCESSORS = new Set(["stripe.com", "paddle.com", "braintreegateway.com"]);
+// BNPL rails are never a subscription source.
 const BNPL = new Set(["sezzle.com", "zip.co", "affirm.com", "klarna.com"]);
 
-// Product-aware service key so DashPass ≠ DoorDash food orders, and the two
-// Reddit email formats merge to one subscription.
+// ---------------------------------------------------------------------------
+// SERVICE IDENTITY — anchor the key on the SENDER's registrable domain (stable
+// across every email of a service), not the LLM's free-text serviceName (which
+// varies per email and fragments one service into many). Tiny curated rules
+// handle aliases + the few multi-product senders; cross-sender receipts unwrap
+// to the merchant through the SAME chokepoint. PURE + deterministic.
+// ---------------------------------------------------------------------------
+const MULTI_TLDS = new Set([
+  "co.uk", "com.au", "co.jp", "co.nz", "com.br", "co.in",
+  "org.uk", "gov.uk", "ac.uk", "com.mx", "co.za",
+]);
+export function registrableRoot(domain: string | null | undefined): string | null {
+  if (!domain) return null;
+  const host = domain.toLowerCase().trim()
+    .replace(/^https?:\/\//, "").replace(/^.*@/, "")
+    .replace(/[/?#].*$/, "").replace(/\.$/, "");
+  const labels = host.split(".").filter(Boolean);
+  if (labels.length < 2) return labels[0] ?? null;
+  const last2 = labels.slice(-2).join(".");
+  const take = MULTI_TLDS.has(last2) ? 3 : 2; // foo.co.uk -> take 3 -> "foo"
+  return labels.slice(-take)[0] ?? null;
+}
+
+// Stopword-stripped distinctive brand word(s); keeps multi-word brands intact.
+const BRAND_STOPWORDS = new Set([
+  "the", "via", "and", "for", "your", "get", "of",
+  "inc", "llc", "co", "ltd", "corp", "plc", "gmbh",
+  "internet", "security", "software", "antivirus", "secureanywhere",
+  "premium", "plus", "pro", "subscription", "membership", "plan",
+  "service", "services", "account", "best", "buy", "geek", "squad",
+  "com", "app", "online", "cloud", "digital", "edition", "order", "receipt",
+]);
+const TWO_WORD_BRANDS = new Set(["trend-micro", "rocket-money", "amazon-prime"]);
+export function brandToken(text: string | null, exclude: Set<string> = new Set()): string | null {
+  if (!text) return null;
+  const words = text.toLowerCase()
+    .replace(/[^a-z0-9 ]+/g, " ").split(/\s+/).filter(Boolean)
+    .filter((w) => w.length >= 3 && !BRAND_STOPWORDS.has(w) && !exclude.has(w) && !/^\d+$/.test(w));
+  if (!words.length) return null;
+  if (words.length >= 2) {
+    const pair = `${words[0]}-${words[1]}`;
+    if (TWO_WORD_BRANDS.has(pair)) return pair;
+  }
+  return words[0];
+}
+
+const slug = (s: string): string =>
+  (s || "").toLowerCase()
+    .replace(/,?\s*(inc|llc|co)\.?$/i, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+
+type SenderRule =
+  | { kind: "alias"; key: string }
+  | { kind: "multi"; brands: ReadonlyArray<readonly [needle: string, key: string]>; fallback: string };
+const SENDER_RULES: Record<string, SenderRule> = {
+  bestbuy: {
+    kind: "multi",
+    brands: [
+      ["webroot", "webroot"],
+      ["trend micro", "trend-micro"], ["trendmicro", "trend-micro"], ["trend", "trend-micro"],
+      ["mcafee", "mcafee"], ["norton", "norton"],
+    ],
+    fallback: "geek-squad",
+  },
+  uber: {
+    kind: "multi",
+    brands: [
+      ["uber eats", "uber-eats-orders"], ["eats", "uber-eats-orders"],
+      ["uber one", "uber-one"], ["uberone", "uber-one"],
+    ],
+    fallback: "rides",
+  },
+  openai: { kind: "alias", key: "chatgpt-plus" },
+  blizzard: { kind: "alias", key: "battlenet" },
+};
+
+// Senders that are never the service: read the merchant from the body instead.
+export const PROCESSORS = new Set(["stripe.com", "paddle.com", "braintreegateway.com"]);
+export const RELAYS = new Set([
+  "privaterelay.appleid.com", "apple.com", "email.apple.com",
+  "itunes.com", "itunes.apple.com", "mail.apple.com",
+]);
+export function isUnwrapSender(fromDomain: string): boolean {
+  const d = (fromDomain || "").toLowerCase();
+  if (PROCESSORS.has(d) || RELAYS.has(d)) return true;
+  return registrableRoot(d) === "apple"; // any apple.com subdomain
+}
+
+const matchBrand = (
+  brands: ReadonlyArray<readonly [string, string]>, hay: string,
+): string | null => {
+  for (const [needle, key] of brands) if (hay.includes(needle)) return key;
+  return null;
+};
+
+// The single chokepoint both the normal path and the cross-sender path run
+// through, so a service's key can never differ between the two.
+function keyForRoot(root: string, serviceName: string, fromName: string, t: string): string {
+  const rule = SENDER_RULES[root];
+  if (rule?.kind === "alias") return rule.key;
+  if (rule?.kind === "multi") {
+    const tok = matchBrand(rule.brands, `${serviceName} ${fromName} ${t}`.toLowerCase());
+    if (tok) return tok;
+    const bt = brandToken(serviceName || fromName, new Set([root]));
+    return bt ? `${root}-${bt}` : `${root}-${rule.fallback}`;
+  }
+  return root;
+}
+
 export function deriveServiceKey(e: EmailMeta, x: Extraction): string {
   const t = (e.subject + " " + e.bodyText).toLowerCase();
+
+  // Keyword sub-product pins (cheaper than curation; split a product from its parent).
   if (/dashpass/.test(t)) return "doordash-dashpass";
   if (/uber eats/.test(t)) return "uber-eats-orders";
   if (/freshpass/.test(t)) return "vons-freshpass";
   if (/reddit premium|reddit, inc/.test(t)) return "reddit-premium";
-  const name = x.serviceName ?? e.fromName;
-  return name.toLowerCase()
-    .replace(/,?\s*(inc|llc|co)\.?$/i, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
+
+  const senderRoot = registrableRoot(e.fromDomain);
+
+  // (B) Cross-sender unwrap: processor / Apple relay / App Store → the MERCHANT
+  // named in the body, derived the SAME way (so an Apple receipt naming "Replit"
+  // and a direct replit.com email both key to "replit").
+  if (x.serviceName && isUnwrapSender(e.fromDomain)) {
+    const mRoot = registrableRoot(x.serviceDomain) ?? brandToken(x.serviceName) ?? slug(x.serviceName);
+    if (mRoot) return keyForRoot(mRoot, x.serviceName, x.serviceName, t);
+  }
+
+  // (A) Normal path: anchor on the sender's registrable root. serviceName is used
+  // only by keyForRoot's multi rules; the bare-root case ignores it, so LLM
+  // naming variance (incl. an inconsistent serviceDomain) cannot fragment.
+  const root = senderRoot ?? slug(x.serviceName ?? e.fromName);
+  return keyForRoot(root, x.serviceName ?? "", e.fromName, t);
 }
 
 // Streams that are inherently per-order; routed through the variance test and
@@ -150,7 +270,7 @@ export function runPipeline(
       trace.push({ emailId: email.id, subject: email.subject, events: ev });
       continue;
     }
-    if (PROCESSORS.has(email.fromDomain)) {
+    if (isUnwrapSender(email.fromDomain)) {
       if (!x.serviceName) {
         push("L2 processor", "fail", `${email.fromDomain} processor, no merchant in body → review`);
         review.push({ messageId: email.id, serviceKey: null, reason: "unresolved processor merchant", raw: x });
@@ -286,6 +406,22 @@ export function runPipeline(
         corrobTrace.push({ tag: "L3 corrob", level: "fail", msg: `${service}: recurring word but no charge/lifecycle/corroboration → REVIEW` });
         review.push({ messageId: head.id, serviceKey: service, reason: "mentions a subscription/premium but shows no charge or lifecycle event — confirm?", raw: { serviceName: head.serviceName, eventType: head.event, confidence: head.confidence } });
       }
+      continue;
+    }
+
+    // L3b — low-signal gate: past the marker branch, a group with NO real charge
+    // event (charged/upcoming/failed/cancelled) and NO grounded amount is only
+    // marketing/activation noise (e.g. "Install your Webroot software"). Ask.
+    const hasRealEvent = cs.some(
+      (c) => c.event === "charged" || c.event === "upcoming" ||
+             c.event === "payment_failed" || c.event === "cancelled",
+    );
+    if (!hasRealEvent && repAmount === null) {
+      corrobTrace.push({ tag: "L3 corrob", level: "fail",
+        msg: `${service}: only marketing/activation (no charge/upcoming/failed/cancelled, no amount) → REVIEW` });
+      review.push({ messageId: head.id, serviceKey: service,
+        reason: "only marketing/activation signal — no charge or renewal event; confirm this is a paid subscription?",
+        raw: { serviceName: head.serviceName, eventType: head.event, confidence: head.confidence } });
       continue;
     }
 

@@ -1,6 +1,6 @@
 // Proves the ported guard pipeline (lib/guards.ts) produces the same
 // classifications as the verified prototype. Run: npm run verify:guards
-import { runPipeline } from "../lib/guards";
+import { runPipeline, registrableRoot, brandToken } from "../lib/guards";
 import { PipelineInput, Extraction, EmailMeta } from "../lib/types";
 
 const base: Extraction = {
@@ -74,6 +74,44 @@ const inputs: PipelineInput[] = [
        bodyText: "Upgrade to LinkedIn Premium to see who viewed your profile." },
      { isSubscription: true, serviceName: "LinkedIn", billingCycle: "monthly", eventType: "none", hasRecurringMarker: true, confidence: 0.6 }),
 
+  // Identity: 3 Webroot emails from emailinfo.bestbuy.com with DIFFERENT serviceNames
+  // must collapse to ONE key "webroot" (the fragmentation fix).
+  mk({ id: "wb1", fromName: "Best Buy", fromDomain: "emailinfo.bestbuy.com", subject: "Install your Webroot Internet Security",
+       bodyText: "install your webroot software" },
+     { isSubscription: true, serviceName: "Webroot Internet Security", eventType: "started", confidence: 0.7 }),
+  mk({ id: "wb2", fromName: "Best Buy", fromDomain: "emailinfo.bestbuy.com", subject: "Don't forget your Webroot",
+       bodyText: "geek squad / webroot internet security via best buy" },
+     { isSubscription: true, serviceName: "Geek Squad / Webroot Internet Security via Best Buy", eventType: "started", confidence: 0.7 }),
+  mk({ id: "wb3", fromName: "Best Buy", fromDomain: "emailinfo.bestbuy.com", subject: "Webroot SecureAnywhere",
+       bodyText: "webroot secureanywhere internet security via geek squad" },
+     { isSubscription: true, serviceName: "Webroot SecureAnywhere Internet Security via Geek Squad", eventType: "started", confidence: 0.7 }),
+  // Trend Micro from the SAME sender must stay a DISTINCT key.
+  mk({ id: "tm1", fromName: "Best Buy", fromDomain: "emailinfo.bestbuy.com", subject: "Install your Trend Micro Internet Security",
+       bodyText: "geek squad / trend micro internet security" },
+     { isSubscription: true, serviceName: "Geek Squad / Trend Micro Internet Security", eventType: "started", confidence: 0.7 }),
+
+  // Uber One (a real sub) must NOT merge with Uber Eats food orders (same uber.com).
+  mk({ id: "uone", fromName: "Uber", fromDomain: "uber.com", subject: "Your Uber One membership renews soon",
+       bodyText: "your uber one membership renews soon. you'll be charged $9.99/mo." },
+     { isSubscription: true, serviceName: "Uber One", amount: { value: "$9.99", quote: "you'll be charged $9.99/mo" }, billingCycle: "monthly", eventType: "upcoming", hasRecurringMarker: true, confidence: 0.9 }),
+
+  // Cross-sender: an Apple-relay receipt (serviceDomain present AND null) + a direct
+  // replit.com reminder all key to "replit" and merge into one priced sub.
+  mk({ id: "rep-apple1", fromName: "Apple", fromDomain: "privaterelay.appleid.com", subject: "Your receipt from Apple",
+       bodyText: "Receipt. Replit Core. Amount paid $40.00." },
+     { isSubscription: true, serviceName: "Replit Core", serviceDomain: "replit.com", amount: { value: "$40.00", quote: "Amount paid $40.00" }, billingCycle: "monthly", eventType: "charged", hasRecurringMarker: true, confidence: 0.92 }),
+  mk({ id: "rep-apple2", fromName: "Apple", fromDomain: "privaterelay.appleid.com", subject: "Your receipt from Apple",
+       bodyText: "Receipt. Replit Core. Amount paid $40.00." },
+     { isSubscription: true, serviceName: "Replit Core", serviceDomain: null, amount: { value: "$40.00", quote: "Amount paid $40.00" }, billingCycle: "monthly", eventType: "charged", hasRecurringMarker: true, confidence: 0.92 }),
+  mk({ id: "rep-direct", fromName: "Replit", fromDomain: "replit.com", subject: "Your Replit Core renews soon",
+       bodyText: "your replit core subscription renews soon" },
+     { isSubscription: true, serviceName: "Replit", billingCycle: "monthly", eventType: "upcoming", hasRecurringMarker: true, confidence: 0.9 }),
+
+  // Low-signal: a lone activation email (started, no amount, no marker) → review.
+  mk({ id: "lowsig", fromName: "SomeApp", fromDomain: "someapp.io", subject: "Welcome to SomeApp",
+       bodyText: "thanks for joining someapp" },
+     { isSubscription: true, serviceName: "SomeApp", eventType: "started", confidence: 0.7 }),
+
   // malformed extraction → must be caught by Zod
   { email: { id: "bad", fromName: "X", fromDomain: "x.com", subject: "Receipt", date: "2026-06-12T10:00", bodyText: "" },
     extraction: { isSubscription: "yes", confidence: 1.4 } },
@@ -90,7 +128,7 @@ const checks: [string, boolean][] = [
   ["ChatGPT routed to ending", has(L.ending, "chatgpt-plus")],
   ["Grammarly routed to past-due", has(L.pastDue, "grammarly")],
   ["Sezzle rejected (payment rail)", L.rejected.some((r) => r.ref === "sezzle")],
-  ["Webroot → review (low confidence)", L.review.some((r) => r.serviceKey === "webroot-internet-security")],
+  ["Webroot → review (low confidence, key collapsed)", L.review.some((r) => r.serviceKey === "webroot")],
   ["Battle.net rejected (one-time)", L.rejected.some((r) => r.ref === "battlenet")],
   ["Malformed → review (Zod)", L.review.some((r) => r.messageId === "bad")],
   ["Notion price change $8 → $10 (newer wins)",
@@ -100,6 +138,22 @@ const checks: [string, boolean][] = [
     L.active.find((s) => s.serviceKey === "reddit-premium")?.previousAmount === null],
   ["LinkedIn marketing → review (marker but no charge/lifecycle)",
     L.review.some((r) => r.serviceKey === "linkedin") && !L.active.some((s) => s.serviceKey === "linkedin")],
+  ["Webroot fragmentation: 3 names → 1 key 'webroot'",
+    new Set(L.evidence.filter((e) => ["wb1", "wb2", "wb3"].includes(e.messageId)).map((e) => e.serviceKey)).size === 1 &&
+    L.evidence.some((e) => e.messageId === "wb1" && e.serviceKey === "webroot")],
+  ["Trend Micro distinct from Webroot (same sender)",
+    L.evidence.some((e) => e.messageId === "tm1" && e.serviceKey === "trend-micro")],
+  ["Uber One ≠ Uber Eats (same uber.com)",
+    L.active.some((s) => s.serviceKey === "uber-one") && L.rejected.some((r) => r.ref === "uber-eats-orders")],
+  ["Cross-sender: Apple-relay + direct Replit → one priced sub @ $40",
+    (() => { const r = L.active.find((s) => s.serviceKey === "replit"); return !!r && r.amount === 40 && r.evidenceCount === 3; })()],
+  ["Low-signal activation → review (not active)",
+    L.review.some((r) => r.serviceKey === "someapp") && !L.active.some((s) => s.serviceKey === "someapp")],
+  ["registrableRoot strips subdomains + TLDs",
+    registrableRoot("emailinfo.bestbuy.com") === "bestbuy" && registrableRoot("m.ifit.com") === "ifit" &&
+    registrableRoot("care.wellnesswag.com") === "wellnesswag" && registrableRoot("foo.co.uk") === "foo"],
+  ["brandToken keeps multi-word brands (trend-micro)",
+    brandToken("Geek Squad / Trend Micro Internet Security") === "trend-micro"],
 ];
 
 console.log("\nLEDGER");

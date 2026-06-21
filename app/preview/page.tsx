@@ -23,7 +23,7 @@ const ending: Sub[] = [
 ];
 const review = [
   { id: "r1", service_key: "uber-eats-orders", reason: "6 one-time orders, varying amounts (CV 0.41)" },
-  { id: "r2", service_key: "webroot-internet-security", reason: "low confidence (0.45)" },
+  { id: "r2", service_key: "webroot", reason: "low confidence (0.45)" },
 ];
 
 const detailSub: SubDetail = {
