@@ -1,0 +1,140 @@
+/* Fonts are loaded and self-hosted via next/font in app/layout.tsx, which sets
+   the --font-serif / --font-mono / --font-body CSS variables used below. */
+:root {
+  --bg: #0c0c0e;
+  --panel: #131316;
+  --line: #24242a;
+  --ink: #e8e4da;       /* warm paper */
+  --ink-dim: #8a867d;
+  --ink-faint: #56534c;
+  --amber: #c5a572;     /* tungsten — active */
+  --rust: #b4624a;      /* past due */
+  --serif: var(--font-serif), 'Fraunces', Georgia, serif;
+  --mono: var(--font-mono), 'IBM Plex Mono', ui-monospace, monospace;
+  --body: var(--font-body), 'Inter', system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--body);
+  -webkit-font-smoothing: antialiased;
+  line-height: 1.5;
+}
+
+.wrap { max-width: 760px; margin: 0 auto; padding: 64px 24px 120px; }
+
+/* Masthead */
+.eyebrow {
+  font-family: var(--mono);
+  font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.masthead { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 56px; }
+.masthead h1 { font-family: var(--serif); font-weight: 500; font-size: 22px; letter-spacing: -0.01em; }
+
+/* Hero — the total, and what was held back */
+.hero { border-top: 1px solid var(--line); padding-top: 40px; margin-bottom: 56px; }
+.hero .label { font-family: var(--mono); font-size: 12px; color: var(--ink-dim); letter-spacing: 0.04em; }
+.hero .total {
+  font-family: var(--serif); font-weight: 400; font-size: 88px; line-height: 0.95;
+  letter-spacing: -0.03em; margin: 10px 0 4px; font-feature-settings: 'tnum';
+}
+.hero .total .cents { color: var(--ink-dim); font-size: 52px; }
+.hero .sub { font-family: var(--mono); font-size: 12px; color: var(--ink-dim); }
+.hero .held {
+  margin-top: 22px; font-family: var(--mono); font-size: 12.5px; color: var(--ink-faint);
+  border-left: 2px solid var(--amber); padding-left: 12px; line-height: 1.7;
+}
+.hero .held b { color: var(--amber); font-weight: 500; }
+
+/* Sections */
+.section { margin-bottom: 44px; }
+.section > h2 {
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--ink-dim); margin-bottom: 14px; display: flex; justify-content: space-between;
+}
+.section > h2 .count { color: var(--ink-faint); }
+
+/* Ledger rows */
+.row {
+  display: grid; grid-template-columns: 1fr auto; align-items: baseline;
+  padding: 13px 0; border-bottom: 1px solid var(--line); gap: 16px;
+}
+.row .name { font-size: 15px; letter-spacing: -0.005em; }
+.row .meta { font-family: var(--mono); font-size: 11.5px; color: var(--ink-faint); margin-top: 2px; }
+.row .amt { font-family: var(--mono); font-size: 15px; font-weight: 500; font-feature-settings: 'tnum'; white-space: nowrap; }
+.row .amt.dim { color: var(--ink-faint); font-weight: 400; }
+.tag {
+  display: inline-block; font-family: var(--mono); font-size: 10px; letter-spacing: 0.06em;
+  padding: 1px 6px; border-radius: 2px; margin-left: 8px; vertical-align: middle;
+}
+.tag.due { color: var(--rust); border: 1px solid color-mix(in srgb, var(--rust) 45%, transparent); }
+.tag.end { color: var(--ink-faint); border: 1px solid var(--line); }
+
+/* Review queue */
+.review .row { grid-template-columns: 1fr auto; }
+.review .why { font-family: var(--mono); font-size: 11.5px; color: var(--ink-dim); margin-top: 3px; }
+.actions { display: flex; gap: 8px; }
+button.act {
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.04em;
+  background: transparent; color: var(--ink-dim); border: 1px solid var(--line);
+  padding: 5px 11px; border-radius: 3px; cursor: pointer; transition: all .12s;
+}
+button.act:hover { border-color: var(--ink-dim); color: var(--ink); }
+button.act.keep:hover { border-color: var(--amber); color: var(--amber); }
+button.act:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+
+/* Scan control + footer */
+.scanbar { display: flex; align-items: center; gap: 14px; }
+button.scan {
+  font-family: var(--mono); font-size: 12px; letter-spacing: 0.04em;
+  background: var(--amber); color: #1a1408; border: none;
+  padding: 8px 16px; border-radius: 4px; cursor: pointer;
+}
+button.scan:disabled { opacity: .5; cursor: default; }
+.scanbar .when { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); }
+
+.empty {
+  font-family: var(--mono); font-size: 12.5px; color: var(--ink-faint);
+  border: 1px dashed var(--line); border-radius: 4px; padding: 16px; text-align: center;
+}
+.kept-foot { font-family: var(--mono); font-size: 11.5px; color: var(--ink-faint); line-height: 1.9; }
+.kept-foot .k { color: var(--ink-dim); }
+
+/* Clickable ledger rows → per-subscription history */
+a.row.rowlink { text-decoration: none; color: inherit; transition: border-color .12s; }
+a.row.rowlink:hover { border-bottom-color: var(--ink-dim); }
+a.row.rowlink:hover .name { color: var(--amber); }
+a.row.rowlink:focus-visible { outline: 2px solid var(--amber); outline-offset: 3px; border-radius: 2px; }
+
+/* Price-change badge + detail note */
+.tag.chg { color: var(--amber); border: 1px solid color-mix(in srgb, var(--amber) 40%, transparent); text-transform: none; }
+.hero .pricenote { font-family: var(--mono); font-size: 12px; color: var(--amber); margin: 2px 0 8px; }
+
+/* Export link */
+a.export { color: var(--ink-dim); text-decoration: none; border-bottom: 1px solid var(--line); }
+a.export:hover { color: var(--amber); border-bottom-color: var(--amber); }
+
+/* Back link (detail masthead) */
+a.back { font-family: var(--mono); font-size: 11px; letter-spacing: 0.04em; color: var(--ink-dim); text-decoration: none; }
+a.back:hover { color: var(--amber); }
+
+/* Subscription detail hero */
+.hero.detail .detail-name { font-family: var(--serif); font-size: 34px; font-weight: 500; letter-spacing: -0.02em; margin: 8px 0 6px; }
+.hero.detail .total { font-size: 60px; }
+.hero.detail .total .per { font-family: var(--mono); font-size: 14px; color: var(--ink-dim); letter-spacing: 0; }
+.hero.detail .total .dim { color: var(--ink-faint); }
+
+/* Payment-history events reuse .row/.amt; tag labels stay lowercase */
+.event .tag { text-transform: none; }
+
+@media (max-width: 560px) {
+  .hero .total { font-size: 64px; }
+  .hero .total .cents { font-size: 38px; }
+  .hero.detail .total { font-size: 46px; }
+  .masthead { flex-direction: column; gap: 6px; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
