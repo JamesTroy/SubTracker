@@ -8,18 +8,18 @@ import {
 export const dynamic = "force-static";
 
 const active: Sub[] = [
-  { id: "1", service_name: "ChatGPT Plus", service_domain: "openai.com", amount_cents: 2000, previous_amount_cents: null, billing_cycle: "monthly", status: "active", next_renewal: "2026-07-02", evidence_count: 5 },
-  { id: "2", service_name: "Rork", service_domain: "rork.com", amount_cents: 2000, previous_amount_cents: null, billing_cycle: "monthly", status: "active", next_renewal: null, evidence_count: 3 },
-  { id: "3", service_name: "Vons FreshPass", service_domain: "vons.com", amount_cents: 1299, previous_amount_cents: null, billing_cycle: "monthly", status: "active", next_renewal: "2026-06-23", evidence_count: 4 },
-  { id: "4", service_name: "Notion", service_domain: "notion.so", amount_cents: 1000, previous_amount_cents: 800, billing_cycle: "monthly", status: "active", next_renewal: "2026-07-10", evidence_count: 6 },
-  { id: "5", service_name: "iCloud+", service_domain: "apple.com", amount_cents: 299, previous_amount_cents: null, billing_cycle: "monthly", status: "active", next_renewal: null, evidence_count: 9 },
-  { id: "6", service_name: "Acme Pro (via Paddle)", service_domain: "acme.io", amount_cents: null, previous_amount_cents: null, billing_cycle: "monthly", status: "active", next_renewal: null, evidence_count: 2 },
+  { id: "1", service_key: "chatgpt-plus", service_name: "ChatGPT Plus", service_domain: "openai.com", amount_cents: 2000, previous_amount_cents: null, billing_cycle: "monthly", status: "active", next_renewal: "2026-07-02", evidence_count: 5 },
+  { id: "2", service_key: "rork", service_name: "Rork", service_domain: "rork.com", amount_cents: 2000, previous_amount_cents: null, billing_cycle: "monthly", status: "active", next_renewal: null, evidence_count: 3 },
+  { id: "3", service_key: "vons-freshpass", service_name: "Vons FreshPass", service_domain: "vons.com", amount_cents: 1299, previous_amount_cents: null, billing_cycle: "monthly", status: "active", next_renewal: "2026-06-23", evidence_count: 4 },
+  { id: "4", service_key: "notion", service_name: "Notion", service_domain: "notion.so", amount_cents: 1000, previous_amount_cents: 800, billing_cycle: "monthly", status: "active", next_renewal: "2026-07-10", evidence_count: 6 },
+  { id: "5", service_key: "icloud", service_name: "iCloud+", service_domain: "apple.com", amount_cents: 299, previous_amount_cents: null, billing_cycle: "monthly", status: "active", next_renewal: null, evidence_count: 9 },
+  { id: "6", service_key: "acme", service_name: "Acme Pro (via Paddle)", service_domain: "acme.io", amount_cents: null, previous_amount_cents: null, billing_cycle: "monthly", status: "active", next_renewal: null, evidence_count: 2 },
 ];
 const pastDue: Sub[] = [
-  { id: "7", service_name: "Grammarly", service_domain: "grammarly.com", amount_cents: 1200, previous_amount_cents: null, billing_cycle: "monthly", status: "past_due", next_renewal: null, evidence_count: 2 },
+  { id: "7", service_key: "grammarly", service_name: "Grammarly", service_domain: "grammarly.com", amount_cents: 1200, previous_amount_cents: null, billing_cycle: "monthly", status: "past_due", next_renewal: null, evidence_count: 2 },
 ];
 const ending: Sub[] = [
-  { id: "8", service_name: "Disney+", service_domain: "disneyplus.com", amount_cents: 1399, previous_amount_cents: null, billing_cycle: "monthly", status: "ending", next_renewal: null, evidence_count: 4 },
+  { id: "8", service_key: "disney-plus", service_name: "Disney+", service_domain: "disneyplus.com", amount_cents: 1399, previous_amount_cents: null, billing_cycle: "monthly", status: "ending", next_renewal: null, evidence_count: 4 },
 ];
 const review = [
   { id: "r1", service_key: "uber-eats-orders", reason: "6 one-time orders, varying amounts (CV 0.41)" },

@@ -3,6 +3,7 @@ import { supabaseAdmin } from "./supabase";
 import { getAccessToken, listMessageIdsPage, getMessage, CANDIDATE_QUERY, TokenError } from "./gmail";
 import { extractFromEmail } from "./extract";
 import { runPipeline } from "./guards";
+import { getStrictMode } from "./settings";
 import { extractPdfAmount } from "./pdf";
 import { PipelineInput } from "./types";
 
@@ -42,7 +43,7 @@ const maxDate = (a: string | null, b: string | null): string | null => {
 type FetchedEmail = Awaited<ReturnType<typeof getMessage>>;
 
 // Status strength, so a partial re-scan can never downgrade a confirmed sub.
-const STATUS_RANK: Record<string, number> = { candidate: 0, ending: 1, past_due: 2, active: 3 };
+const STATUS_RANK: Record<string, number> = { candidate: 0, pending: 1, ending: 2, past_due: 3, active: 4 };
 
 // Live progress, streamed to the client so the Scan button can show a tracker.
 export type ScanProgress =
@@ -185,7 +186,10 @@ export async function runScan(onProgress: (p: ScanProgress) => void = () => {}):
     const overrides = new Map<string, "subscription" | "not_subscription">(
       (ov ?? []).map((o) => [o.service_key, o.decision]),
     );
-    const ledger = runPipeline(inputs, overrides);
+    // Strict mode: nothing reaches the active ledger without a 'subscription'
+    // approval — confirmable-but-unapproved services land in 'pending' for a tap.
+    const strict = await getStrictMode();
+    const ledger = runPipeline(inputs, overrides, strict);
 
     // PDF amount fallback for confirmed subs with no grounded price. Best-effort.
     let pdfResolved = 0;
@@ -204,7 +208,7 @@ export async function runScan(onProgress: (p: ScanProgress) => void = () => {}):
 
     // --- Persist (all error-checked) ---------------------------------------
     const now = new Date().toISOString();
-    const allSubs = [...ledger.active, ...ledger.pastDue, ...ledger.ending, ...ledger.candidates];
+    const allSubs = [...ledger.active, ...ledger.pastDue, ...ledger.ending, ...ledger.candidates, ...ledger.pending];
     const keys = [...new Set(allSubs.map((s) => s.serviceKey))];
 
     // Pull existing subs (for anti-regression status + renewal coalesce) and existing
@@ -239,8 +243,11 @@ export async function runScan(onProgress: (p: ScanProgress) => void = () => {}):
       // signal must not downgrade it — UNLESS this is an explicit lifecycle-down event
       // (a real cancellation or payment failure), which is exactly the signal that
       // SHOULD move status down even from a single corroborating email.
+      // Strict-mode 'pending' is an intentional downgrade (awaiting approval), so it
+      // must NOT be clamped back up to a previously-stored 'active'.
       const isLifecycleDown = s.eventType === "cancelled" || s.eventType === "payment_failed";
-      if (ex && !isLifecycleDown && (STATUS_RANK[ex] ?? 0) > (STATUS_RANK[s.status] ?? 0) && s.evidenceCount < 2) status = ex;
+      const isStrictPending = s.status === "pending";
+      if (ex && !isLifecycleDown && !isStrictPending && (STATUS_RANK[ex] ?? 0) > (STATUS_RANK[s.status] ?? 0) && s.evidenceCount < 2) status = ex;
       const roll = rollup([...(evByKey.get(s.serviceKey)?.values() ?? [])]);
       return {
         service_key: s.serviceKey, service_name: s.serviceName, service_domain: s.serviceDomain,

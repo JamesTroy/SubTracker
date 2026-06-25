@@ -242,6 +242,7 @@ interface Charge {
 export function runPipeline(
   inputs: PipelineInput[],
   overrides: Map<string, "subscription" | "not_subscription"> = new Map(),
+  strict = false,
 ): LedgerResult {
   const trace: EmailTrace[] = [];
   const charges: Charge[] = [];
@@ -458,9 +459,14 @@ export function runPipeline(
   // -------------------------------------------------------------------------
   // L5 — status routing
   // -------------------------------------------------------------------------
-  const active: SubResult[] = [], pastDue: SubResult[] = [], ending: SubResult[] = [], candidates: SubResult[] = [];
+  const active: SubResult[] = [], pastDue: SubResult[] = [], ending: SubResult[] = [], candidates: SubResult[] = [], pending: SubResult[] = [];
   for (const r of results) {
     if (r.status === "candidate") { candidates.push(r); continue; }
+    // STRICT MODE — the 100% gate. A confirmable service reaches the active ledger
+    // ONLY through an explicit 'subscription' approval (one-tap Approve). Everything
+    // else waits in 'pending', so the active ledger is human-approved by construction.
+    const approved = overrides.get(r.serviceKey) === "subscription";
+    if (strict && !approved) { pending.push({ ...r, status: "pending" }); continue; }
     if (r.eventType === "cancelled") ending.push({ ...r, status: "ending" });
     else if (r.eventType === "payment_failed") pastDue.push({ ...r, status: "past_due" });
     else active.push(r);
@@ -468,5 +474,5 @@ export function runPipeline(
 
   const monthlyTotal = active.reduce((sum, r) => sum + (r.amount ?? 0), 0);
 
-  return { active, pastDue, ending, candidates, review, rejected, monthlyTotal, trace, evidence };
+  return { active, pastDue, ending, candidates, pending, review, rejected, monthlyTotal, trace, evidence };
 }

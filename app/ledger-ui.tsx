@@ -17,12 +17,12 @@ const EVENT_LABEL: Record<string, string> = {
 };
 
 export type Sub = {
-  id: string; service_name: string; service_domain: string | null;
+  id: string; service_key: string; service_name: string; service_domain: string | null;
   amount_cents: number | null; previous_amount_cents: number | null;
   billing_cycle: string; status: string; next_renewal: string | null; evidence_count: number;
 };
 export type SubDetail = Sub & {
-  service_key: string; price_changed_at: string | null; currency: string | null; confidence: number | null;
+  price_changed_at: string | null; currency: string | null; confidence: number | null;
 };
 export type Evidence = {
   id: string; received_at: string; event_type: string; amount_cents: number | null;
@@ -105,6 +105,23 @@ export function ReviewItem({ serviceKey, reason, actions }: {
       <div>
         <div className="name">{serviceKey ?? "Unknown charge"}</div>
         <div className="why">{reason}</div>
+      </div>
+      {actions}
+    </div>
+  );
+}
+
+export function PendingRow({ s, actions }: { s: Sub; actions: React.ReactNode }) {
+  const amt = money(s.amount_cents);
+  return (
+    <div className="row">
+      <div>
+        <div className="name">{s.service_name}<span className="tag chg">awaiting approval</span></div>
+        <div className="meta">
+          {s.billing_cycle}
+          {s.evidence_count > 1 ? ` · ${s.evidence_count} receipts` : ""}
+          {amt !== null ? ` · $${amt}/mo` : " · no price"}
+        </div>
       </div>
       {actions}
     </div>

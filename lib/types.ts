@@ -46,7 +46,7 @@ export interface SubResult {
   serviceKey: string;
   serviceName: string;
   serviceDomain: string | null;
-  status: "active" | "past_due" | "ending" | "candidate";
+  status: "active" | "past_due" | "ending" | "candidate" | "pending";
   amount: number | null;       // dollars; the most recent grounded charge (null = unknown price)
   previousAmount: number | null; // the prior distinct price, if it changed over time
   priceChangedAt: string | null; // ISO date the price moved to `amount`
@@ -67,6 +67,7 @@ export interface LedgerResult {
   pastDue: SubResult[];
   ending: SubResult[];
   candidates: SubResult[];
+  pending: SubResult[];        // strict mode: confirmable but not yet user-approved
   review: ReviewResult[];
   rejected: RejectResult[];
   monthlyTotal: number;        // dollars

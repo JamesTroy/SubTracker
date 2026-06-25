@@ -144,6 +144,17 @@ const inputs: PipelineInput[] = [
 
 const L = runPipeline(inputs);
 
+// Strict mode: the 100% gate. A confirmable charge reaches 'active' ONLY with an
+// explicit 'subscription' approval; otherwise it waits in 'pending'.
+const strictInput: PipelineInput[] = [
+  mk({ id: "sm1", fromName: "Acme", fromDomain: "acme.io", subject: "Your Acme receipt",
+       bodyText: "Your Acme Pro membership renewed. Amount paid $12.00." },
+     { isSubscription: true, serviceName: "Acme", amount: { value: "$12.00", quote: "Amount paid $12.00" }, billingCycle: "monthly", eventType: "charged", hasRecurringMarker: true, confidence: 0.95 }),
+];
+const smOff = runPipeline(strictInput);                                              // non-strict
+const smOn = runPipeline(strictInput, new Map(), true);                              // strict, not approved
+const smApproved = runPipeline(strictInput, new Map([["acme", "subscription"]]), true); // strict, approved
+
 const has = (arr: { serviceKey: string }[], k: string) => arr.some((s) => s.serviceKey === k);
 const checks: [string, boolean][] = [
   ["Uber Eats rejected (variance)", L.rejected.some((r) => r.ref === "uber-eats-orders")],
@@ -188,6 +199,12 @@ const checks: [string, boolean][] = [
     registrableRoot("care.wellnesswag.com") === "wellnesswag" && registrableRoot("foo.co.uk") === "foo"],
   ["brandToken keeps multi-word brands (trend-micro)",
     brandToken("Geek Squad / Trend Micro Internet Security") === "trend-micro"],
+  ["non-strict: confirmable charge → active",
+    smOff.active.some((s) => s.serviceKey === "acme") && smOff.pending.length === 0],
+  ["strict + no approval → pending, NOT active",
+    smOn.pending.some((s) => s.serviceKey === "acme") && !smOn.active.some((s) => s.serviceKey === "acme")],
+  ["strict + 'subscription' approval → active",
+    smApproved.active.some((s) => s.serviceKey === "acme") && smApproved.pending.length === 0],
 ];
 
 console.log("\nLEDGER");

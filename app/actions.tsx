@@ -119,3 +119,54 @@ export function ReviewActions({ id }: { id: string }) {
     </div>
   );
 }
+
+// Strict mode toggle — when on, only user-approved services appear as active.
+export function StrictToggle({ on }: { on: boolean }) {
+  const [strict, setStrict] = useState(on);
+  const [busy, setBusy] = useState(false);
+  const router = useRouter();
+  async function toggle() {
+    const next = !strict;
+    setBusy(true);
+    try {
+      const res = await fetch("/api/settings", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ strict: next }),
+      });
+      if (res.ok) { setStrict(next); router.refresh(); }
+    } finally { setBusy(false); }
+  }
+  return (
+    <button
+      className={`strict${strict ? " on" : ""}`}
+      onClick={toggle}
+      disabled={busy}
+      aria-pressed={strict}
+      title="Strict mode: only subscriptions you've approved appear in the ledger"
+    >
+      <span className="track"><span className="knob" /></span>
+      <span className="lbl">strict {strict ? "on" : "off"}</span>
+    </button>
+  );
+}
+
+// One-tap approve / dismiss for a pending subscription.
+export function ApproveActions({ serviceKey }: { serviceKey: string }) {
+  const [done, setDone] = useState<string | null>(null);
+  const router = useRouter();
+  async function act(decision: "approve" | "dismiss") {
+    setDone(decision);
+    await fetch("/api/approve", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ serviceKey, decision }),
+    });
+    router.refresh();
+  }
+  if (done) return <span className="why">{done === "approve" ? "approved ✓" : "dismissed"}</span>;
+  return (
+    <div className="actions">
+      <button className="act keep" onClick={() => act("approve")}>Approve</button>
+      <button className="act" onClick={() => act("dismiss")}>Not a sub</button>
+    </div>
+  );
+}

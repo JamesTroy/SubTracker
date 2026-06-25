@@ -1,6 +1,7 @@
 import { supabaseAdmin } from "@/lib/supabase";
-import { ScanButton, ReviewActions } from "./actions";
-import { Hero, Section, Row, Empty, ReviewItem, type Sub } from "./ledger-ui";
+import { getStrictMode } from "@/lib/settings";
+import { ScanButton, ReviewActions, StrictToggle, ApproveActions } from "./actions";
+import { Hero, Section, Row, Empty, ReviewItem, PendingRow, type Sub } from "./ledger-ui";
 
 export const dynamic = "force-dynamic";
 
@@ -12,17 +13,19 @@ const ago = (iso: string | null) => {
 
 export default async function Page() {
   const db = supabaseAdmin();
-  const [{ data: subs }, { data: review }, { data: scan }, { data: account }] = await Promise.all([
+  const [{ data: subs }, { data: review }, { data: scan }, { data: account }, strict] = await Promise.all([
     db.from("subscriptions").select("*").order("amount_cents", { ascending: false, nullsFirst: false }),
     db.from("review_items").select("*").eq("status", "pending").order("created_at"),
     db.from("scan_runs").select("*").order("started_at", { ascending: false }).limit(1).maybeSingle(),
     db.from("gmail_accounts").select("email,last_scan_at").order("created_at", { ascending: true }).limit(1).maybeSingle(),
+    getStrictMode(),
   ]);
 
   const all = (subs ?? []) as Sub[];
   const active = all.filter((s) => s.status === "active");
   const pastDue = all.filter((s) => s.status === "past_due");
   const ending = all.filter((s) => s.status === "ending");
+  const pending = all.filter((s) => s.status === "pending");
 
   const totalCents = active.reduce((t, s) => t + (s.amount_cents ?? 0), 0);
   const priced = active.filter((s) => s.amount_cents !== null).length;
@@ -38,6 +41,7 @@ export default async function Page() {
         <div className="scanbar">
           <span className="when">{account?.email ? `synced ${ago(account.last_scan_at)}` : "not connected"}</span>
           {scan?.error && <span className="when err" title={scan.error}>· last scan failed</span>}
+          {account?.email && <StrictToggle on={strict} />}
           {account?.email ? <ScanButton /> : <a className="scan" href="/api/auth/google">Connect Gmail</a>}
         </div>
       </div>
@@ -49,6 +53,18 @@ export default async function Page() {
         heldBack={heldBack}
         showExport={all.length > 0}
       />
+
+      {strict && pending.length > 0 && (
+        <Section title="Pending approval" count={pending.length} className="review">
+          <div className="pending-intro">
+            <b>Strict mode is on.</b> Nothing enters your ledger without your okay — approve each
+            to keep it. You’re asked once per service, then it’s remembered forever.
+          </div>
+          {pending.map((s) => (
+            <PendingRow key={s.id} s={s} actions={<ApproveActions serviceKey={s.service_key} />} />
+          ))}
+        </Section>
+      )}
 
       <Section title="Active" count={active.length}>
         {active.length === 0
